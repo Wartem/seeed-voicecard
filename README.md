@@ -10,10 +10,11 @@ This project is a fork of HinTak's fork of the official ReSpeaker drivers, exten
 
 - **Compatibility**: Aimed at Raspberry Pi 4 and 5
 - **Testing**: I/O Audio successfully tested on Raspberry Pi 5 using reSpeaker 2-Mics Pi HAT.
-  Running:
-    Latest version (2024-10-01) of Debian GNU/Linux 12 (bookworm).
-      Linux raspberrypi 6.6.51+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.6.51-1+rpt2 (2024-10-01) aarch64 GNU/Linux
-- **Functionality**: Working audio recording and playback with default drivers
+  - **Running**:
+    - Latest version (2024-10-01) of Debian GNU/Linux 12 (bookworm).
+      - Linux raspberrypi 6.6.51+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.6.51-1+rpt2 (2024-10-01) aarch64 GNU/Linux
+  
+- **Functionality**: Working audio recording and playback using ALSA.
 
 ## Important Note
 
