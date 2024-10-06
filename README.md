@@ -2,14 +2,52 @@
 
 The drivers for [ReSpeaker Mic Hat](https://www.seeedstudio.com/ReSpeaker-2-Mics-Pi-HAT-p-2874.html), [ReSpeaker 4 Mic Array](https://www.seeedstudio.com/ReSpeaker-4-Mic-Array-for-Raspberry-Pi-p-2941.html), [6-Mics Circular Array Kit](), and [4-Mics Linear Array Kit]() for Raspberry Pi.
 
-### Install seeed-voicecard
+# Extended ReSpeaker Drivers for Raspberry Pi 4 and 5
+
+This project is a fork of the official ReSpeaker drivers, extended with the goal of adding support for Raspberry Pi 4 and 5.
+
+## Current Status
+
+- **Compatibility**: Aimed at Raspberry Pi 4 and 5
+- **Testing**: Successfully tested on Raspberry Pi 5
+- **Functionality**: Working audio recording and playback with default drivers
+
+## Important Note
+
+This is an experimental extension of the original and HinTak's drivers. While it has shown success in initial testing, there are no guarantees of full functionality or stability at this stage.
+
+## Features
+
+- Extended support for newer Raspberry Pi models (4 and 5)
+- Utilizes default ALSA drivers for audio functionality
+- Maintains compatibility with the Seeed 2-mic voice card (ReSpeaker HAT)
+
+## Installation
+
 Get the seeed voice card source code and install all linux kernel drivers
 ```bash
-git clone https://github.com/HinTak/seeed-voicecard
+git clone https://github.com/Wartem/seeed-voicecard
 cd seeed-voicecard
-sudo ./install.sh
-sudo reboot
+sudo ./expanded_menu.sh
 ```
+
+## Known Issues
+
+- Clock configuration warning for WM8960 codec (does not affect basic functionality)
+- LED's not working.
+
+## Troubleshooting
+
+A common fix is to install mulitple times.
+
+## Disclaimer
+
+This is a work in progress. Use at your own risk. We recommend thorough testing before using in any production environment.
+
+## Acknowledgments
+
+This project builds upon the work of the original ReSpeaker driver developers. We extend our gratitude for their foundational work.
+
 ## ReSpeaker Documentation
 
 Up to date documentation for reSpeaker products can be found in [Seeed Studio Wiki](https://wiki.seeedstudio.com/ReSpeaker/)!
@@ -33,18 +71,7 @@ python tools/coherence.py a.wav
 ```
 
 ### uninstall seeed-voicecard
-If you want to upgrade the driver , you need uninstall the driver first.
-
-```
-pi@raspberrypi:~/seeed-voicecard $ sudo ./uninstall.sh 
-...
-------------------------------------------------------
-Please reboot your raspberry pi to apply all settings
-Thank you!
-------------------------------------------------------
-```
-
-Enjoy !
+The goal is to support uninstall via the menu. No guarantees that it works yet.
 
 ### Technical support
 
@@ -60,5 +87,3 @@ And following hardware platforms:
 Anything beyond the scope of official support is considered to be community supported. Support for other OS/hardware platforms can be added, provided MOQ requirements can be met. 
 
 If you have a technical problem when using reSpeaker with one of the officially supported platforms/OS, feel free to create an issue on Github. For general questions or suggestions, please use [Seeed forum](https://forum.seeedstudio.com/c/products/respeaker/15). 
-
-
