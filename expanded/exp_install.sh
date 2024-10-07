@@ -167,7 +167,8 @@ expanded_install() {
     pre_install
 
     for i in {1..2}; do
-    expanded_install_part_2
+        echo "Installing drivers run $i of 2"
+        expanded_install_part_2
     done
 
 expanded_install_part_2() {
@@ -176,6 +177,11 @@ expanded_install_part_2() {
 
     echo "Compiling and installing the driver..."
     sudo "$SEEED_VOICECARD_ROOT/install.sh"
+
+    echo "Recompiling the Seeed voicecard driver..."
+    make clean
+    make
+    sudo make install
  
     echo "Building and installing dtbo file for $overlay..."
     sudo dtc -@ -I dts -O dtb -o "/boot/overlays/${overlay}.dtbo" "$SEEED_VOICECARD_ROOT/${overlay}-overlay.dts"
@@ -203,6 +209,7 @@ expanded_install_part_2() {
 
     echo "Updating initramfs..."
     sudo update-initramfs -u
+    
 
     }
 
