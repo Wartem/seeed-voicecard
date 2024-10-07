@@ -47,12 +47,12 @@ update_config_line() {
         return 1
     fi
 
-    sudo awk -v line="$line_to_add" '
+    awk -v line="$line_to_add" '
         $0 != line {print}
         END {print line}
     ' "$config_file" > "$temp_file"
 
-    sudo mv "$temp_file" "$config_file"
+    mv "$temp_file" "$config_file"
 
     echo "Updated $config_file with '$line_to_add'"
 }
@@ -63,7 +63,7 @@ remove_existing_overlays() {
     local overlays=("seeed-2mic-voicecard" "seeed-4mic-voicecard" "seeed-6mic-voicecard" "seeed-8mic-voicecard")
 
     for current_overlay in "${overlays[@]}"; do
-        sudo sed -i "/dtoverlay=$current_overlay/d" "$config_file"
+        sed -i "/dtoverlay=$current_overlay/d" "$config_file"
     done
     echo "Removed existing Seeed voicecard overlays from $config_file"
 }
@@ -73,20 +73,20 @@ pre_install() {
     apt install -y dkms
 
     # Remove old DKMS modules if they exist
-    dkms remove -m seeed-voicecard -v 0.3 --all || true
+    #dkms remove -m seeed-voicecard -v 0.3 --all || true
 
     # Reinstall dtbo files if missing
-    for dtbo in seeed-2mic-voicecard.dtbo seeed-4mic-voicecard.dtbo seeed-8mic-voicecard.dtbo; do
-        if [ ! -f "$OVERLAYS/$dtbo" ]; then
-            echo "Reinstalling $dtbo"
-            cp "$SEEED_VOICECARD_ROOT/$dtbo" "$OVERLAYS/"
-        fi
-    done
+    #for dtbo in seeed-2mic-voicecard.dtbo seeed-4mic-voicecard.dtbo seeed-8mic-voicecard.dtbo; do
+        #if [ ! -f "$OVERLAYS/$dtbo" ]; then
+            #echo "Reinstalling $dtbo"
+            #cp "$SEEED_VOICECARD_ROOT/$dtbo" "$OVERLAYS/"
+        #fi
+    #done
 
     # Remove old kernel modules if they exist
-    rm -f /lib/modules/*/updates/dkms/snd-soc-wm8960.ko
-    rm -f /lib/modules/*/updates/dkms/snd-soc-ac108.ko
-    rm -f /lib/modules/*/updates/dkms/snd-soc-seeed-voicecard.ko
+    #rm -f /lib/modules/*/updates/dkms/snd-soc-wm8960.ko
+    #rm -f /lib/modules/*/updates/dkms/snd-soc-ac108.ko
+    #rm -f /lib/modules/*/updates/dkms/snd-soc-seeed-voicecard.ko
 
     # Update /etc/modules
     
@@ -121,6 +121,48 @@ pre_install() {
     cp "$SEEED_VOICECARD_ROOT/seeed-voicecard.service" /lib/systemd/system/
 }
 
+expanded_install_part_2() {
+    echo "Building dtbo files..."
+    "$SEEED_VOICECARD_ROOT/builddtbo.sh"
+
+    echo "Compiling and installing the driver..."
+    "$SEEED_VOICECARD_ROOT/install.sh"
+
+    echo "Recompiling the Seeed voicecard driver..."
+    make clean
+    make
+    make install
+ 
+    echo "Building and installing dtbo file for $overlay..."
+    dtc -@ -I dts -O dtb -o "/boot/overlays/${overlay}.dtbo" "$SEEED_VOICECARD_ROOT/${overlay}-overlay.dts"
+
+    echo "Removing existing overlays"
+    remove_existing_overlays
+
+    echo "Setting up device tree overlay for $overlay..."
+    update_config_line "dtoverlay=$overlay"
+    update_config_line "dtparam=i2s=on"
+
+    echo "Enabling I2C and SPI interfaces..."
+    raspi-config nonint do_i2c 0
+    raspi-config nonint do_spi 0
+
+    echo "Configuring sound card modules and blacklisting default audio driver..."
+    echo -e "snd-soc-seeed-voicecard\nsnd-soc-ac108\nsnd-soc-wm8960" | sudo tee -a /etc/modules
+    echo "blacklist snd_bcm2835" | sudo tee -a /etc/modprobe.d/raspi-blacklist.conf
+
+    echo "Adding user to audio and i2c groups..."
+    usermod -a -G audio,i2c $SUDO_USER
+
+    modprobe snd-soc-wm8960
+    modprobe snd-soc-seeed-voicecard
+
+    echo "Updating initramfs..."
+    update-initramfs -u
+    
+
+    }
+
 # Expanded Seeed ReSpeaker HAT installation
 expanded_install() {
     echo "Welcome to this expanded Seeed ReSpeaker HAT installation script."
@@ -131,7 +173,7 @@ expanded_install() {
 
     if [ "$update_choice" != "2" ]; then
         echo "Updating the system..."
-        sudo apt update
+        apt update
         # Ensure required packages are installed
         # apt install -y dkms git i2c-tools libasound2-plugins raspberrypi-kernel-headers
 
@@ -141,9 +183,9 @@ expanded_install() {
         read -p "Enter your choice (1 or 2): " upgrade_choice
 
         if [ "$upgrade_choice" = "2" ]; then
-            sudo apt full-upgrade -y
+            apt full-upgrade -y
         else
-            sudo apt upgrade -y
+            apt upgrade -y
         fi
     else
         echo "Skipping system update."
@@ -171,65 +213,24 @@ expanded_install() {
         expanded_install_part_2
     done
 
-expanded_install_part_2() {
-    echo "Building dtbo files..."
-    sudo "$SEEED_VOICECARD_ROOT/builddtbo.sh"
-
-    echo "Compiling and installing the driver..."
-    sudo "$SEEED_VOICECARD_ROOT/install.sh"
-
-    echo "Recompiling the Seeed voicecard driver..."
-    make clean
-    make
-    sudo make install
- 
-    echo "Building and installing dtbo file for $overlay..."
-    sudo dtc -@ -I dts -O dtb -o "/boot/overlays/${overlay}.dtbo" "$SEEED_VOICECARD_ROOT/${overlay}-overlay.dts"
-
-    echo "Removing existing overlays"
-    remove_existing_overlays
-
-    echo "Setting up device tree overlay for $overlay..."
-    update_config_line "dtoverlay=$overlay"
-    update_config_line "dtparam=i2s=on"
-
-    echo "Enabling I2C and SPI interfaces..."
-    sudo raspi-config nonint do_i2c 0
-    sudo raspi-config nonint do_spi 0
-
-    echo "Configuring sound card modules and blacklisting default audio driver..."
-    echo -e "snd-soc-seeed-voicecard\nsnd-soc-ac108\nsnd-soc-wm8960" | sudo tee -a /etc/modules
-    echo "blacklist snd_bcm2835" | sudo tee -a /etc/modprobe.d/raspi-blacklist.conf
-
-    echo "Adding user to audio and i2c groups..."
-    sudo usermod -a -G audio,i2c $SUDO_USER
-
-    sudo modprobe snd-soc-wm8960
-    sudo modprobe snd-soc-seeed-voicecard
-
-    echo "Updating initramfs..."
-    sudo update-initramfs -u
-    
-
-    }
 
     # Clean up any old dtbo files
     for old_overlay in seeed-2mic-voicecard seeed-4mic-voicecard seeed-6mic-voicecard seeed-8mic-voicecard; do
         if [ "$old_overlay" != "$overlay" ]; then
-            sudo rm -f "/boot/overlays/${old_overlay}.dtbo"
+            rm -f "/boot/overlays/${old_overlay}.dtbo"
         fi
     done
 
     echo "Installation completed."
     echo "A reboot is required to apply all changes."
-    ench "--- NOTE ---"
-    ench "Running this installation one more time after reboot can sometimes solve issues."
-    ench "--- NOTE ---"
+    echo "--- NOTE ---"
+    echo "Running this installation one more time after reboot can sometimes solve issues."
+    echo "--- NOTE ---"
 
     read -p "Do you want to reboot now? (y/n): " reboot_choice
     if [[ $reboot_choice =~ ^[Yy]$ ]]; then
         echo "Rebooting now..."
-        sudo reboot
+        reboot
     else
         echo "Installation completed."
         echo "A reboot is required to apply all changes."
@@ -237,12 +238,13 @@ expanded_install_part_2() {
         echo "┌─── NOTE ───────────────────────────────────────────────────────────────┐"
         echo "│ Running this installation 2 times with a booot in between              │"
         echo "│ can sometimes solve issues.                                            │"
-        ench "└────────────────────────────────────────────────────────────────────────┘"
+        echo "└────────────────────────────────────────────────────────────────────────┘"
         echo "Don't forget to reboot your Raspberry Pi to apply all changes."
     fi
 }
 
 # Prompt for main install
+echo ""
 echo "Welcome to to the expanded installation."
 echo "Note that success is not guaranteed." 
 echo "Make sure to backup any and all important data before proceeding."
