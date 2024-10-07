@@ -32,7 +32,7 @@ Get the seeed voice card source code and install all linux kernel drivers
 ```bash
 git clone https://github.com/Wartem/seeed-voicecard
 cd seeed-voicecard
-sudo ./expanded_menu.sh
+sudo bash expanded_menu.sh
 ```
 
 ## Known Issues
