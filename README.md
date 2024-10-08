@@ -28,7 +28,7 @@ This project provides extended drivers for ReSpeaker audio devices, specifically
 - [ReSpeaker 6-Mics Circular Array Kit]()
 - [ReSpeaker 4-Mics Linear Array Kit]()
 
-## Current Status
+## Current Status - Experimental
 
 - **Compatibility**: Optimized for Raspberry Pi 4 and 5
 - **Testing**: Successfully tested basic I/O audio on Raspberry Pi 5 with ReSpeaker 2-Mics Pi HAT
