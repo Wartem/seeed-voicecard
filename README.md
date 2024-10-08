@@ -77,9 +77,41 @@ Uninstallation can be performed through the expanded menu. Please note that this
 
 This project is a work in progress and is considered experimental. While initial testing has shown promising results, we cannot guarantee full functionality or stability at this stage. We strongly recommend thorough testing before using this in any production environment.
 
-## Contributing
+## More installation information
+The expanded_install.sh script builds upon the original install.sh as it runs it as one of the steps. It adds more functionality and user interaction. Here's a summary of what this expanded script does:
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+1. Checks for root privileges.
+
+2. Defines helper functions for various tasks like checking module existence, updating configuration files, and removing existing overlays.
+
+3. Offers the user a choice to update the system before installation, including options for a regular upgrade or a full upgrade.
+
+4. Allows the user to select their specific ReSpeaker mic model (2, 4, 6, or 8 mics).
+
+5. Performs pre-installation tasks:
+   - Ensures DKMS is installed
+   - Updates /etc/modules with required sound modules
+   - Updates the boot configuration file
+   - Copies necessary configuration files to /etc/voicecard
+   - Sets up the seeed-voicecard binary and service
+
+6. Compiles and installs the driver twice (for redundancy):
+   - Builds dtbo (Device Tree Blob Overlay) files
+   - Compiles and installs the Seeed voicecard driver
+   - Builds and installs the specific dtbo file for the chosen mic model
+   - Removes existing overlays and sets up the new one
+   - Enables I2C and SPI interfaces
+   - Configures sound card modules and blacklists the default audio driver
+   - Adds the user to audio and i2c groups
+   - Updates the initramfs
+
+7. Cleans up old dtbo files that aren't needed for the chosen model.
+
+8. Offers the user a choice to reboot immediately or later.
+
+9. Provides additional notes about potentially needing to run the installation twice for best results.
+
+This expanded script aims to provide a comprehensive and user-friendly installation process for the Seeed ReSpeaker HAT, addressing potential issues that might arise due to system updates or specific hardware configurations.
 
 ## Acknowledgments
 
@@ -87,8 +119,8 @@ This project builds upon the work of the original ReSpeaker driver developers an
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
-
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.  
+# 
 # UNCHANGED README CONTENT FROM ORIGINAL/UPSTREAM REPO BELOW:
 
 ## ReSpeaker Documentation
