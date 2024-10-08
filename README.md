@@ -21,13 +21,6 @@
 
 This project provides extended drivers for ReSpeaker audio devices, specifically targeting Raspberry Pi 4 and 5. It's a fork of HinTak's fork of the official ReSpeaker drivers, with the goal of adding support for newer Raspberry Pi models and implementing diagnostics and tests.
 
-### Supported Devices
-
-- [ReSpeaker 2-Mics Pi HAT](https://www.seeedstudio.com/ReSpeaker-2-Mics-Pi-HAT-p-2874.html)
-- [ReSpeaker 4-Mics Pi HAT](https://www.seeedstudio.com/ReSpeaker-4-Mic-Array-for-Raspberry-Pi-p-2941.html)
-- [ReSpeaker 6-Mics Circular Array Kit]()
-- [ReSpeaker 4-Mics Linear Array Kit]()
-
 ## Current Status - Experimental
 
 - **Compatibility**: Optimized for Raspberry Pi 4 and 5
@@ -36,6 +29,13 @@ This project provides extended drivers for ReSpeaker audio devices, specifically
   - Debian GNU/Linux 12 (bookworm) - Latest version as of 2024-10-01
   - Linux kernel: 6.6.51+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.6.51-1+rpt2 (2024-10-01) aarch64 GNU/Linux
 - **Functionality**: Supports audio recording and playback using ALSA
+
+### Supported Devices
+
+- [ReSpeaker 2-Mics Pi HAT](https://www.seeedstudio.com/ReSpeaker-2-Mics-Pi-HAT-p-2874.html)
+- [ReSpeaker 4-Mics Pi HAT](https://www.seeedstudio.com/ReSpeaker-4-Mic-Array-for-Raspberry-Pi-p-2941.html)
+- [ReSpeaker 6-Mics Circular Array Kit](https://www.seeedstudio.com/ReSpeaker-6-Mic-Circular-Array-Kit-for-Raspberry-Pi.html?srsltid=AfmBOooM2fDw69YjqGc_ZIQLruOYx043Ki6fqFli1His9ULooJ1SJJxt)
+- [ReSpeaker 4-Mics Linear Array Kit](https://www.seeedstudio.com/ReSpeaker-4-Mic-Linear-Array-Kit-for-Raspberry-Pi.html)
 
 ## Features
 
