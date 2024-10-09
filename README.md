@@ -86,7 +86,7 @@ The expanded_install.sh script builds upon the original install.sh as it runs it
 
 3. Offers the user a choice to update the system before installation, including options for a regular upgrade or a full upgrade.
 
-4. Allows the user to select their specific ReSpeaker mic model (2, 4, 6, or 8 mics).
+4. Allows the user to select their specific ReSpeaker mic model (2, 4 or 6).
 
 5. Performs pre-installation tasks:
    - Ensures DKMS is installed
