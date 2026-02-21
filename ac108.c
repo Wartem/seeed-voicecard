@@ -653,7 +653,8 @@ static int ac108_hw_params(struct snd_pcm_substream *substream, struct snd_pcm_h
 
 	dev_dbg(dai->dev, "%s() stream=%s play:%d capt:%d +++\n", __func__,
 			snd_pcm_stream_str(substream),
-			dai->stream[SNDRV_PCM_STREAM_PLAYBACK].active, dai->stream[SNDRV_PCM_STREAM_CAPTURE].active);
+			snd_soc_dai_stream_active(dai, SNDRV_PCM_STREAM_PLAYBACK),
+			snd_soc_dai_stream_active(dai, SNDRV_PCM_STREAM_CAPTURE));
 
 	if (ac10x->i2c101) {
 		ret = ac101_hw_params(substream, params, dai);
@@ -664,8 +665,10 @@ static int ac108_hw_params(struct snd_pcm_substream *substream, struct snd_pcm_h
 		}
 	}
 
-	if ((substream->stream == SNDRV_PCM_STREAM_CAPTURE && dai->stream[SNDRV_PCM_STREAM_PLAYBACK].active)
-	 || (substream->stream == SNDRV_PCM_STREAM_PLAYBACK && dai->stream[SNDRV_PCM_STREAM_CAPTURE].active)) {
+	if ((substream->stream == SNDRV_PCM_STREAM_CAPTURE &&
+	     snd_soc_dai_stream_active(dai, SNDRV_PCM_STREAM_PLAYBACK))
+	 || (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
+	     snd_soc_dai_stream_active(dai, SNDRV_PCM_STREAM_CAPTURE))) {
 		/* not configure hw_param twice */
 		/* return 0; */
 	}
@@ -1545,7 +1548,11 @@ static struct i2c_driver ac108_i2c_driver = {
 		.name = "ac10x-codec",
 		.of_match_table = ac108_of_match,
 	},
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,6,0)
+	.probe_new = ac108_i2c_probe,
+#else
 	.probe =    ac108_i2c_probe,
+#endif
 	.remove =   ac108_i2c_remove,
 	.id_table = ac108_i2c_id,
 };

@@ -1,0 +1,1 @@
+savedcmd_/home/wartem/seeed-voicecard/modules.order := {   echo /home/wartem/seeed-voicecard/snd-soc-wm8960.o;   echo /home/wartem/seeed-voicecard/snd-soc-ac108.o;   echo /home/wartem/seeed-voicecard/snd-soc-seeed-voicecard.o; :; } > /home/wartem/seeed-voicecard/modules.order

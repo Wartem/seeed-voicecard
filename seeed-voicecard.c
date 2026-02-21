@@ -30,6 +30,23 @@
 
 #define LINUX_VERSION_IS_GEQ(x1,x2,x3)	(LINUX_VERSION_CODE >= KERNEL_VERSION(x1,x2,x3))
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,12,0)
+#define asoc_simple_dai                         simple_util_dai
+#define asoc_simple_parse_daifmt                simple_util_parse_daifmt
+#define asoc_simple_parse_clk                   simple_util_parse_clk
+#define asoc_simple_set_dailink_name            simple_util_set_dailink_name
+#define asoc_simple_parse_card_name             simple_util_parse_card_name
+#define asoc_simple_canonicalize_platform       simple_util_canonicalize_platform
+#define asoc_simple_canonicalize_cpu            simple_util_canonicalize_cpu
+#define asoc_simple_clean_reference             simple_util_clean_reference
+#endif
+
+#ifndef asoc_rtd_to_cpu
+#define asoc_rtd_to_cpu(rtd, n)                 snd_soc_rtd_to_cpu(rtd, n)
+#endif
+#ifndef asoc_rtd_to_codec
+#define asoc_rtd_to_codec(rtd, n)               snd_soc_rtd_to_codec(rtd, n)
+#endif
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5,13,0)
 #define asoc_simple_parse_clk_cpu(dev, node, dai_link, simple_dai)      \
@@ -220,7 +237,8 @@ static int seeed_voice_card_trigger(struct snd_pcm_substream *substream, int cmd
 
 	dev_dbg(rtd->card->dev, "%s() stream=%s  cmd=%d play:%d, capt:%d\n",
 		__FUNCTION__, snd_pcm_stream_str(substream), cmd,
-		dai->stream[SNDRV_PCM_STREAM_PLAYBACK].active, dai->stream[SNDRV_PCM_STREAM_CAPTURE].active);
+		snd_soc_dai_stream_active(dai, SNDRV_PCM_STREAM_PLAYBACK),
+		snd_soc_dai_stream_active(dai, SNDRV_PCM_STREAM_CAPTURE));
 
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
@@ -242,7 +260,8 @@ static int seeed_voice_card_trigger(struct snd_pcm_substream *substream, int cmd
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		/* capture channel resync, if overrun */
-		if (dai->stream[SNDRV_PCM_STREAM_CAPTURE].active && substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		if (snd_soc_dai_stream_active(dai, SNDRV_PCM_STREAM_CAPTURE) &&
+		    substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 			break;
 		}
 
@@ -262,7 +281,8 @@ static int seeed_voice_card_trigger(struct snd_pcm_substream *substream, int cmd
 
 	dev_dbg(rtd->card->dev, "%s() stream=%s  cmd=%d play:%d, capt:%d;finished %d\n",
 		__FUNCTION__, snd_pcm_stream_str(substream), cmd,
-		dai->stream[SNDRV_PCM_STREAM_PLAYBACK].active, dai->stream[SNDRV_PCM_STREAM_CAPTURE].active, ret);
+		snd_soc_dai_stream_active(dai, SNDRV_PCM_STREAM_PLAYBACK),
+		snd_soc_dai_stream_active(dai, SNDRV_PCM_STREAM_CAPTURE), ret);
 
 	return ret;
 }
@@ -311,7 +331,11 @@ static int asoc_simple_parse_dai(struct device_node *node,
 	 * 2) user need to rebind Sound Card everytime
 	 *    if he unbinded CPU or Codec.
 	 */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,6,0)
+	ret = snd_soc_of_get_dai_name(node, &dlc->dai_name);
+#else
 	ret = snd_soc_of_get_dai_name(node, &dlc->dai_name, 0);
+#endif
 	if (ret < 0)
 		return ret;
 
@@ -890,7 +914,7 @@ err:
 	return ret;
 }
 
-static int seeed_voice_card_remove(struct platform_device *pdev)
+static void seeed_voice_card_remove_common(struct platform_device *pdev)
 {
 	struct snd_soc_card *card = platform_get_drvdata(pdev);
 	struct seeed_card_data *priv = snd_soc_card_get_drvdata(card);
@@ -898,9 +922,20 @@ static int seeed_voice_card_remove(struct platform_device *pdev)
 	if (cancel_work_sync(&priv->work_codec_clk) != 0) {
 	}
 	asoc_simple_clean_reference(card);
+}
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,12,0)
+static void seeed_voice_card_remove(struct platform_device *pdev)
+{
+	seeed_voice_card_remove_common(pdev);
+}
+#else
+static int seeed_voice_card_remove(struct platform_device *pdev)
+{
+	seeed_voice_card_remove_common(pdev);
 	return 0;
 }
+#endif
 
 static const struct of_device_id seeed_voice_of_match[] = {
 	{ .compatible = "seeed-voicecard", },

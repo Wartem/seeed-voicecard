@@ -51,6 +51,7 @@ function get_kernel_version() {
 }
 
 CONFIG=/boot/config.txt
+[ -f /boot/firmware/config.txt ] && CONFIG=/boot/firmware/config.txt
 [ -f /boot/firmware/usercfg.txt ] && CONFIG=/boot/firmware/usercfg.txt
 
 get_overlay() {
@@ -93,7 +94,7 @@ is_1a=$(i2cdetect -y  1 0x1a 0x1a | egrep "(1a|UU)" | awk '{print $2}')
 is_35=$(i2cdetect -y  1 0x35 0x35 | egrep "(35|UU)" | awk '{print $2}')
 is_3b=$(i2cdetect -y  1 0x3b 0x3b | egrep "(3b|UU)" | awk '{print $2}')
 
-RPI_HATS="seeed-2mic-voicecard seeed-4mic-voicecard seeed-8mic-voicecard"
+RPI_HATS="seeed-2mic-voicecard seeed-4mic-voicecard seeed-6mic-voicecard seeed-8mic-voicecard"
 overlay=""
 
 if [ "x${is_1a}" != "x" ] && [ "x${is_35}" == "x" ] ; then
@@ -112,6 +113,7 @@ fi
 
 if [ "x${is_3b}" != "x" ] && [ "x${is_35}" != "x" ] ; then
     echo "install 6mic"
+    # This hardware profile uses the 8-mic overlay in upstream logic.
     overlay=seeed-8mic-voicecard
     asound_conf=/etc/voicecard/asound_6mic.conf
     asound_state=/etc/voicecard/ac108_6mic.state
@@ -121,8 +123,8 @@ if [ "$overlay" ]; then
     echo Install $overlay ...
 
     # Remove old configuration
-    rm /etc/asound.conf
-    rm /var/lib/alsa/asound.state
+    rm -f /etc/asound.conf
+    rm -f /var/lib/alsa/asound.state
 
     kernel_ver=$(uname -r) # get_kernel_version)
     # echo kernel_ver=$kernel_ver
@@ -144,9 +146,9 @@ if [ "$overlay" ]; then
 
 
     echo "create $overlay asound configure file"
-    ln -s $asound_conf /etc/asound.conf
+    ln -sfn $asound_conf /etc/asound.conf
     echo "create $overlay asound status file"
-    ln -s $asound_state /var/lib/alsa/asound.state
+    ln -sfn $asound_state /var/lib/alsa/asound.state
 fi
 
 alsactl restore

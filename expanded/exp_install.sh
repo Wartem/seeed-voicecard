@@ -1,194 +1,335 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# This script updates your Linux system and installs the Seeed ReSpeaker HAT.
-# Updating is recommended to ensure compatibility, security, and performance.
-# The script will update system packages, enable necessary interfaces,
-# set up device tree overlays, compile and install drivers, and configure
-# sound card modules. A system reboot is required after installation.
+set -euo pipefail
 
-set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SEEED_VOICECARD_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-SEEED_VOICECARD_ROOT="$(dirname "$(dirname "$0")")"
+OVERLAYS=""
+CONFIG=""
+SELECTED_OVERLAY=""
+SELECTED_MODEL=""
 
-if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root (use sudo)" 1>&2
-   exit 1
-fi
+NON_INTERACTIVE=0
+AUTO_CONFIRM=0
+AUTO_REBOOT=0
+CLI_MODEL=""
+CLI_UPDATE_MODE="prompt"
+RUN_SMOKE_TEST=0
+RUN_DOCTOR=0
 
-OVERLAYS=/boot/overlays
-[ -d /boot/firmware/overlays ] && OVERLAYS=/boot/firmware/overlays
-
-CONFIG=/boot/config.txt
-[ -f /boot/firmware/config.txt ] && CONFIG=/boot/firmware/config.txt
-[ -f /boot/firmware/usercfg.txt ] && CONFIG=/boot/firmware/usercfg.txt
-
-# Function to check if a kernel module exists
-check_module_exists() {
-    if lsmod | grep -q "^$1"; then
-        return 0
-    else
-        return 1
-    fi
+log() {
+    echo "[INFO] $*"
 }
 
-# Function to safely add a line to a file if it doesn't exist
-add_line_if_not_exists() {
-    grep -qxF "$1" "$2" || echo "$1" >> "$2"
+warn() {
+    echo "[WARN] $*" >&2
 }
 
-# Function to update the configuration line
-update_config_line() {
-    local config_file="/boot/firmware/config.txt"
-    local line_to_add="$1"
-    local temp_file="/tmp/temp_config.txt"
-
-    if [ ! -f "$config_file" ]; then
-        echo "Error: Config file $config_file not found."
-        return 1
-    fi
-
-    awk -v line="$line_to_add" '
-        $0 != line {print}
-        END {print line}
-    ' "$config_file" > "$temp_file"
-
-    mv "$temp_file" "$config_file"
-
-    echo "Updated $config_file with '$line_to_add'"
+die() {
+    echo "[ERROR] $*" >&2
+    exit 1
 }
 
-# Function to remove existing Seeed overlays
-remove_existing_overlays() {
-    local config_file="/boot/firmware/config.txt"
-    local overlays=("seeed-2mic-voicecard" "seeed-4mic-voicecard" "seeed-6mic-voicecard" "seeed-8mic-voicecard")
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
 
-    for current_overlay in "${overlays[@]}"; do
-        sed -i "/dtoverlay=$current_overlay/d" "$config_file"
+show_help() {
+    cat <<'USAGE'
+Usage: exp_install.sh [options]
+
+Options:
+  -y, --yes                    Non-interactive mode (auto-confirm prompts)
+      --non-interactive        Same as --yes
+      --model <2|4|6|8>        Select mic model without prompt
+      --update-mode <mode>     One of: prompt, none, update, upgrade, full-upgrade
+      --run-smoke-test         Run post-install smoke test automatically
+      --run-doctor             Run full doctor workflow automatically
+      --reboot                 Reboot automatically at the end
+  -h, --help                   Show this help
+
+Examples:
+  sudo ./expanded/exp_install.sh
+  sudo ./expanded/exp_install.sh --yes --model 2 --update-mode none
+  sudo ./expanded/exp_install.sh --yes --model 4 --update-mode upgrade --run-smoke-test
+  sudo ./expanded/exp_install.sh --yes --model 2 --update-mode none --run-doctor --reboot
+USAGE
+}
+
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -y|--yes)
+                NON_INTERACTIVE=1
+                AUTO_CONFIRM=1
+                shift
+                ;;
+            --non-interactive)
+                NON_INTERACTIVE=1
+                AUTO_CONFIRM=1
+                shift
+                ;;
+            --model)
+                [[ $# -ge 2 ]] || die "Missing value for --model"
+                CLI_MODEL="$2"
+                shift 2
+                ;;
+            --update-mode)
+                [[ $# -ge 2 ]] || die "Missing value for --update-mode"
+                CLI_UPDATE_MODE="$2"
+                shift 2
+                ;;
+            --reboot)
+                AUTO_REBOOT=1
+                shift
+                ;;
+            --run-smoke-test)
+                RUN_SMOKE_TEST=1
+                shift
+                ;;
+            --run-doctor)
+                RUN_DOCTOR=1
+                shift
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            *)
+                die "Unknown option: $1"
+                ;;
+        esac
     done
-    echo "Removed existing Seeed voicecard overlays from $config_file"
 }
 
-pre_install() {
-    # Ensure DKMS is installed
-    apt install -y dkms
+validate_args() {
+    case "$CLI_UPDATE_MODE" in
+        prompt|none|update|upgrade|full-upgrade)
+            ;;
+        *)
+            die "Invalid --update-mode: ${CLI_UPDATE_MODE}"
+            ;;
+    esac
 
-    # Remove old DKMS modules if they exist
-    #dkms remove -m seeed-voicecard -v 0.3 --all || true
-
-    # Reinstall dtbo files if missing
-    #for dtbo in seeed-2mic-voicecard.dtbo seeed-4mic-voicecard.dtbo seeed-8mic-voicecard.dtbo; do
-        #if [ ! -f "$OVERLAYS/$dtbo" ]; then
-            #echo "Reinstalling $dtbo"
-            #cp "$SEEED_VOICECARD_ROOT/$dtbo" "$OVERLAYS/"
-        #fi
-    #done
-
-    # Remove old kernel modules if they exist
-    #rm -f /lib/modules/*/updates/dkms/snd-soc-wm8960.ko
-    #rm -f /lib/modules/*/updates/dkms/snd-soc-ac108.ko
-    #rm -f /lib/modules/*/updates/dkms/snd-soc-seeed-voicecard.ko
-
-    # Update /etc/modules
-    
-    for module in snd-soc-seeed-voicecard snd-soc-ac108 snd-soc-wm8960; do
-        add_line_if_not_exists $module /etc/modules
-    done
-
-    # Update config.txt
-    sed -i -e 's:#dtparam=i2c_arm=on:dtparam=i2c_arm=on:g' $CONFIG
-    add_line_if_not_exists "dtoverlay=i2s-mmap" $CONFIG
-    add_line_if_not_exists "dtparam=i2s=on" $CONFIG
-
-    # Ensure config files are in place
-    mkdir -p /etc/voicecard
-
-    # Copy .conf files
-    if ls "$SEEED_VOICECARD_ROOT"/*.conf 1>/dev/null 2>&1; then
-        cp "$SEEED_VOICECARD_ROOT"/*.conf /etc/voicecard/
-    else
-        echo "Warning: No .conf files found in $SEEED_VOICECARD_ROOT"
+    if [[ -n "$CLI_MODEL" ]]; then
+        case "$CLI_MODEL" in
+            2|4|6|8)
+                ;;
+            *)
+                die "Invalid --model: ${CLI_MODEL} (expected 2, 4, 6, or 8)"
+                ;;
+        esac
     fi
 
-    # Copy .state files
-    if ls "$SEEED_VOICECARD_ROOT"/*.state 1>/dev/null 2>&1; then
-        cp "$SEEED_VOICECARD_ROOT"/*.state /etc/voicecard/
-    else
-        echo "Warning: No .state files found in $SEEED_VOICECARD_ROOT"
-    fi
-
-    # Ensure seeed-voicecard binary and service are in place
-    cp "$SEEED_VOICECARD_ROOT/seeed-voicecard" /usr/bin/
-    cp "$SEEED_VOICECARD_ROOT/seeed-voicecard.service" /lib/systemd/system/
-}
-
-expanded_install_part_2() {
-    echo "Building dtbo files..."
-    "$SEEED_VOICECARD_ROOT/builddtbo.sh"
-
-    echo "Compiling and installing the driver..."
-    "$SEEED_VOICECARD_ROOT/install.sh"
-
-    echo "Recompiling the Seeed voicecard driver..."
-    make clean
-    make
-    make install
- 
-    echo "Building and installing dtbo file for $overlay..."
-    dtc -@ -I dts -O dtb -o "/boot/overlays/${overlay}.dtbo" "$SEEED_VOICECARD_ROOT/${overlay}-overlay.dts"
-
-    echo "Removing existing overlays"
-    remove_existing_overlays
-
-    echo "Setting up device tree overlay for $overlay..."
-    update_config_line "dtoverlay=$overlay"
-    update_config_line "dtparam=i2s=on"
-
-    echo "Enabling I2C and SPI interfaces..."
-    raspi-config nonint do_i2c 0
-    raspi-config nonint do_spi 0
-
-    echo "Configuring sound card modules and blacklisting default audio driver..."
-    echo -e "snd-soc-seeed-voicecard\nsnd-soc-ac108\nsnd-soc-wm8960" | sudo tee -a /etc/modules
-    echo "blacklist snd_bcm2835" | sudo tee -a /etc/modprobe.d/raspi-blacklist.conf
-
-    echo "Adding user to audio and i2c groups..."
-    usermod -a -G audio,i2c $SUDO_USER
-
-    modprobe snd-soc-wm8960
-    modprobe snd-soc-seeed-voicecard
-
-    echo "Updating initramfs..."
-    update-initramfs -u
-    
-
-    }
-
-# Expanded Seeed ReSpeaker HAT installation
-expanded_install() {
-    echo "Welcome to this expanded Seeed ReSpeaker HAT installation script."
-    echo "Do you want to update your system before install?"
-    echo "1) Yes (recommended)"
-    echo "2) No (skip updating)"
-    read -p "Enter your choice (1 or 2): " update_choice
-
-    if [ "$update_choice" != "2" ]; then
-        echo "Updating the system..."
-        apt update
-        # Ensure required packages are installed
-        # apt install -y dkms git i2c-tools libasound2-plugins raspberrypi-kernel-headers
-
-        echo "Choose the type of system upgrade:"
-        echo "1) Regular upgrade - apt upgrade (safer, recommended)"
-        echo "2) Full upgrade - apt full-upgrade (more thorough, but may remove packages)"
-        read -p "Enter your choice (1 or 2): " upgrade_choice
-
-        if [ "$upgrade_choice" = "2" ]; then
-            apt full-upgrade -y
-        else
-            apt upgrade -y
+    if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
+        [[ -n "$CLI_MODEL" ]] || die "Non-interactive mode requires --model <2|4|6|8>."
+        if [[ "$CLI_UPDATE_MODE" == "prompt" ]]; then
+            CLI_UPDATE_MODE="none"
         fi
+    fi
+
+    if [[ "$RUN_SMOKE_TEST" -eq 1 && "$RUN_DOCTOR" -eq 1 ]]; then
+        warn "Both --run-smoke-test and --run-doctor set; doctor already runs validation, so smoke flag will be ignored."
+        RUN_SMOKE_TEST=0
+    fi
+}
+
+require_root() {
+    if [[ ${EUID} -ne 0 ]]; then
+        die "This script must be run as root (use sudo)."
+    fi
+}
+
+detect_boot_paths() {
+    OVERLAYS="/boot/overlays"
+    [[ -d /boot/firmware/overlays ]] && OVERLAYS="/boot/firmware/overlays"
+
+    if [[ -f /boot/firmware/usercfg.txt ]]; then
+        CONFIG="/boot/firmware/usercfg.txt"
+    elif [[ -f /boot/firmware/config.txt ]]; then
+        CONFIG="/boot/firmware/config.txt"
+    elif [[ -f /boot/config.txt ]]; then
+        CONFIG="/boot/config.txt"
     else
-        echo "Skipping system update."
+        die "Could not find Raspberry Pi config.txt (checked /boot and /boot/firmware)."
+    fi
+}
+
+add_line_if_missing() {
+    local line="$1"
+    local file="$2"
+
+    [[ -f "$file" ]] || touch "$file"
+    grep -qxF "$line" "$file" || echo "$line" >> "$file"
+}
+
+remove_exact_line() {
+    local line="$1"
+    local file="$2"
+    local tmp_file
+
+    [[ -f "$file" ]] || return 0
+
+    tmp_file="$(mktemp)"
+    grep -vxF "$line" "$file" > "$tmp_file" || true
+    cat "$tmp_file" > "$file"
+    rm -f "$tmp_file"
+}
+
+remove_existing_overlay_lines() {
+    local existing_overlay
+
+    for existing_overlay in \
+        seeed-2mic-voicecard \
+        seeed-4mic-voicecard \
+        seeed-6mic-voicecard \
+        seeed-8mic-voicecard; do
+        remove_exact_line "dtoverlay=${existing_overlay}" "$CONFIG"
+    done
+}
+
+apply_update_mode() {
+    local mode="$1"
+
+    if ! command_exists apt-get; then
+        warn "apt-get not found. Skipping package update actions."
+        return 0
+    fi
+
+    case "$mode" in
+        none)
+            log "Skipping package update/upgrade."
+            ;;
+        update)
+            log "Running apt-get update..."
+            apt-get update
+            ;;
+        upgrade)
+            log "Running apt-get update + apt-get upgrade..."
+            apt-get update
+            apt-get upgrade -y
+            ;;
+        full-upgrade)
+            log "Running apt-get update + apt-get full-upgrade..."
+            apt-get update
+            apt-get full-upgrade -y
+            ;;
+        *)
+            die "Unsupported update mode: ${mode}"
+            ;;
+    esac
+}
+
+prompt_for_system_update() {
+    local update_choice
+    local upgrade_choice
+
+    if [[ "$CLI_UPDATE_MODE" != "prompt" ]]; then
+        apply_update_mode "$CLI_UPDATE_MODE"
+        return 0
+    fi
+
+    if ! command_exists apt-get; then
+        warn "apt-get not found. Skipping package update prompts."
+        return 0
+    fi
+
+    echo "Do you want to update package indexes before installation?"
+    echo "1) Yes (recommended)"
+    echo "2) No"
+    read -r -p "Enter your choice (1 or 2): " update_choice
+
+    if [[ "$update_choice" == "2" ]]; then
+        log "Skipping package index update."
+        return 0
+    fi
+
+    log "Running apt-get update..."
+    apt-get update
+
+    echo "Choose system upgrade type:"
+    echo "1) Skip upgrade"
+    echo "2) apt-get upgrade (safer: no package removals)"
+    echo "3) apt-get full-upgrade (more complete: may remove packages)"
+    read -r -p "Enter your choice (1-3): " upgrade_choice
+
+    case "$upgrade_choice" in
+        2)
+            log "Running apt-get upgrade..."
+            apt-get upgrade -y
+            ;;
+        3)
+            log "Running apt-get full-upgrade..."
+            apt-get full-upgrade -y
+            ;;
+        *)
+            log "Skipping system upgrade."
+            ;;
+    esac
+}
+
+ensure_dependencies() {
+    local pkg
+    local missing=()
+    local required_packages=(dkms device-tree-compiler)
+
+    if ! command_exists apt-get; then
+        warn "apt-get not found. Cannot auto-install missing dependencies."
+        return 0
+    fi
+
+    for pkg in "${required_packages[@]}"; do
+        if ! dpkg -s "$pkg" >/dev/null 2>&1; then
+            missing+=("$pkg")
+        fi
+    done
+
+    if (( ${#missing[@]} == 0 )); then
+        return 0
+    fi
+
+    log "Installing required packages: ${missing[*]}"
+    apt-get update
+    apt-get install -y "${missing[@]}"
+}
+
+map_model_to_overlay() {
+    local model="$1"
+
+    case "$model" in
+        2)
+            SELECTED_OVERLAY="seeed-2mic-voicecard"
+            ;;
+        4)
+            SELECTED_OVERLAY="seeed-4mic-voicecard"
+            ;;
+        6)
+            # Upstream runtime logic uses the 8-mic overlay for 6-mic hardware.
+            SELECTED_OVERLAY="seeed-8mic-voicecard"
+            warn "6-mic selection maps to ${SELECTED_OVERLAY} in this fork."
+            ;;
+        8)
+            SELECTED_OVERLAY="seeed-8mic-voicecard"
+            ;;
+        *)
+            die "Invalid mic model choice: ${model}"
+            ;;
+    esac
+
+    SELECTED_MODEL="$model"
+}
+
+choose_mic_model() {
+    local mic_choice
+
+    if [[ -n "$CLI_MODEL" ]]; then
+        map_model_to_overlay "$CLI_MODEL"
+        return 0
+    fi
+
+    if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
+        die "Non-interactive mode requires --model <2|4|6|8>."
     fi
 
     echo "Please select your ReSpeaker mic model:"
@@ -196,63 +337,200 @@ expanded_install() {
     echo "4) 4-Mics Pi HAT"
     echo "6) 6-Mics Circular Array Kit"
     echo "8) 8-Mics Circular Array Kit"
-    read -p "Enter your choice (2-8): " mic_choice
+    read -r -p "Enter your choice (2, 4, 6, or 8): " mic_choice
 
-    case $mic_choice in
-        2) overlay="seeed-2mic-voicecard" ;;
-        4) overlay="seeed-4mic-voicecard" ;;
-        6) overlay="seeed-6mic-voicecard" ;;
-        8) overlay="seeed-8mic-voicecard" ;;
-        *) echo "Invalid choice. Exiting."; exit 1 ;;
-    esac
+    map_model_to_overlay "$mic_choice"
+}
 
-    pre_install
+run_base_driver_install() {
+    log "Building overlay binaries..."
+    (
+        cd "$SEEED_VOICECARD_ROOT"
+        bash ./builddtbo.sh
+    )
 
-    for i in {1..2}; do
-        echo "Installing drivers run $i of 2"
-        expanded_install_part_2
-    done
+    log "Installing drivers (DKMS path)..."
+    (
+        cd "$SEEED_VOICECARD_ROOT"
+        bash ./install.sh
+    )
+}
 
+install_selected_overlay() {
+    local overlay_name
+    local selected_dtbo
 
-    # Clean up any old dtbo files
-    for old_overlay in seeed-2mic-voicecard seeed-4mic-voicecard seeed-6mic-voicecard seeed-8mic-voicecard; do
-        if [ "$old_overlay" != "$overlay" ]; then
-            rm -f "/boot/overlays/${old_overlay}.dtbo"
+    selected_dtbo="${SELECTED_OVERLAY}.dtbo"
+    [[ -f "${SEEED_VOICECARD_ROOT}/${selected_dtbo}" ]] || die "Missing ${selected_dtbo} in repository root."
+
+    log "Installing selected overlay ${selected_dtbo} to ${OVERLAYS}"
+    install -m 0644 "${SEEED_VOICECARD_ROOT}/${selected_dtbo}" "${OVERLAYS}/${selected_dtbo}"
+
+    for overlay_name in \
+        seeed-2mic-voicecard \
+        seeed-4mic-voicecard \
+        seeed-6mic-voicecard \
+        seeed-8mic-voicecard; do
+        if [[ "$overlay_name" != "$SELECTED_OVERLAY" ]]; then
+            rm -f "${OVERLAYS}/${overlay_name}.dtbo"
         fi
     done
+}
 
-    echo "Installation completed."
-    echo "A reboot is required to apply all changes."
-    echo "--- NOTE ---"
-    echo "Running this installation one more time after reboot can sometimes solve issues."
-    echo "--- NOTE ---"
+configure_boot() {
+    log "Updating boot configuration: ${CONFIG}"
 
-    read -p "Do you want to reboot now? (y/n): " reboot_choice
-    if [[ $reboot_choice =~ ^[Yy]$ ]]; then
-        echo "Rebooting now..."
-        reboot
+    # Uncomment i2c_arm line if present and commented.
+    sed -i -E 's|^[[:space:]]*#[[:space:]]*(dtparam=i2c_arm=on)|\1|' "$CONFIG"
+
+    remove_existing_overlay_lines
+    add_line_if_missing "dtoverlay=i2s-mmap" "$CONFIG"
+    add_line_if_missing "dtparam=i2s=on" "$CONFIG"
+    add_line_if_missing "dtoverlay=${SELECTED_OVERLAY}" "$CONFIG"
+}
+
+configure_modules() {
+    local module
+
+    log "Ensuring kernel modules are listed in /etc/modules"
+    for module in snd-soc-seeed-voicecard snd-soc-ac108 snd-soc-wm8960; do
+        add_line_if_missing "$module" /etc/modules
+    done
+
+    add_line_if_missing "blacklist snd_bcm2835" /etc/modprobe.d/raspi-blacklist.conf
+}
+
+install_runtime_files() {
+    log "Installing runtime files under /etc/voicecard and systemd"
+
+    mkdir -p /etc/voicecard
+
+    if ls "${SEEED_VOICECARD_ROOT}"/*.conf >/dev/null 2>&1; then
+        cp "${SEEED_VOICECARD_ROOT}"/*.conf /etc/voicecard/
     else
-        echo "Installation completed."
-        echo "A reboot is required to apply all changes."
-        echo "If you use SSH, try raspberrypi.local as hostname if you get 'permission denied'."
-        echo "┌─── NOTE ───────────────────────────────────────────────────────────────┐"
-        echo "│ Running this installation 2 times with a booot in between              │"
-        echo "│ can sometimes solve issues.                                            │"
-        echo "└────────────────────────────────────────────────────────────────────────┘"
-        echo "Don't forget to reboot your Raspberry Pi to apply all changes."
+        warn "No .conf files found in ${SEEED_VOICECARD_ROOT}"
+    fi
+
+    if ls "${SEEED_VOICECARD_ROOT}"/*.state >/dev/null 2>&1; then
+        cp "${SEEED_VOICECARD_ROOT}"/*.state /etc/voicecard/
+    else
+        warn "No .state files found in ${SEEED_VOICECARD_ROOT}"
+    fi
+
+    install -m 0755 "${SEEED_VOICECARD_ROOT}/seeed-voicecard" /usr/bin/seeed-voicecard
+    install -m 0644 "${SEEED_VOICECARD_ROOT}/seeed-voicecard.service" /lib/systemd/system/seeed-voicecard.service
+
+    systemctl daemon-reload
+    systemctl enable seeed-voicecard.service >/dev/null 2>&1 || warn "Failed to enable seeed-voicecard.service"
+    systemctl restart seeed-voicecard.service >/dev/null 2>&1 || warn "Failed to restart seeed-voicecard.service"
+}
+
+add_invoking_user_to_groups() {
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+        log "Adding ${SUDO_USER} to audio and i2c groups"
+        usermod -a -G audio,i2c "$SUDO_USER" || warn "Failed to update groups for ${SUDO_USER}"
+    else
+        warn "SUDO_USER not set; skipping audio/i2c group update."
     fi
 }
 
-# Prompt for main install
-echo ""
-echo "Welcome to to the expanded installation."
-echo "Note that success is not guaranteed." 
-echo "Make sure to backup any and all important data before proceeding."
-echo "In worst case secenario you will have to reflash your OS if it doesn't work." 
-echo ""
-read -p "Do you want to install now? (yes/no): " run_main
-if [[ $run_main == "yes" ]]; then
-    expanded_install
-else
-    echo "Skipping the installation."
-fi
+post_install_summary() {
+    echo
+    echo "Installation completed in one pass."
+    echo "Selected model: ${SELECTED_MODEL}"
+    echo "Selected overlay: ${SELECTED_OVERLAY}"
+    echo "Overlay directory: ${OVERLAYS}"
+    echo "Config file: ${CONFIG}"
+    echo
+    echo "A reboot is required for all changes to take effect."
+}
+
+prompt_reboot() {
+    local reboot_choice
+
+    if [[ "$AUTO_REBOOT" -eq 1 ]]; then
+        log "--reboot specified. Rebooting now..."
+        reboot
+    fi
+
+    if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
+        log "Non-interactive mode: skipping reboot prompt."
+        return 0
+    fi
+
+    read -r -p "Reboot now? (y/n): " reboot_choice
+    if [[ "$reboot_choice" =~ ^[Yy]$ ]]; then
+        log "Rebooting now..."
+        reboot
+    fi
+}
+
+run_post_install_checks() {
+    local doctor_script="${SCRIPT_DIR}/exp_doctor.sh"
+    local smoke_script="${SCRIPT_DIR}/exp_post_install_smoke_test.sh"
+
+    if [[ "$RUN_DOCTOR" -eq 1 ]]; then
+        if [[ ! -x "$doctor_script" ]]; then
+            warn "Doctor script not found: ${doctor_script}"
+            return 0
+        fi
+
+        log "Running post-install doctor workflow..."
+        if [[ "$NON_INTERACTIVE" -eq 1 ]]; then
+            "$doctor_script" --yes || warn "Doctor workflow reported issues. Review its report output."
+        else
+            "$doctor_script" || warn "Doctor workflow reported issues. Review its report output."
+        fi
+        return 0
+    fi
+
+    if [[ "$RUN_SMOKE_TEST" -eq 1 ]]; then
+        if [[ ! -x "$smoke_script" ]]; then
+            warn "Smoke test script not found: ${smoke_script}"
+            return 0
+        fi
+
+        log "Running post-install smoke test..."
+        "$smoke_script" || warn "Smoke test reported failures. Review its report output."
+    fi
+}
+
+main() {
+    local run_main
+
+    parse_args "$@"
+    validate_args
+
+    require_root
+    detect_boot_paths
+
+    echo "Expanded Seeed ReSpeaker installation"
+    echo "This script performs a single-pass install and configures one overlay."
+
+    if [[ "$AUTO_CONFIRM" -ne 1 ]]; then
+        read -r -p "Continue? (yes/no): " run_main
+        if [[ "$run_main" != "yes" ]]; then
+            log "Installation aborted by user."
+            return 0
+        fi
+    fi
+
+    prompt_for_system_update
+    ensure_dependencies
+    choose_mic_model
+
+    run_base_driver_install
+    install_selected_overlay
+    configure_boot
+    configure_modules
+    install_runtime_files
+    add_invoking_user_to_groups
+
+    depmod -a || warn "depmod failed; kernel module dependency map may be stale until reboot."
+
+    run_post_install_checks
+    post_install_summary
+    prompt_reboot
+}
+
+main "$@"

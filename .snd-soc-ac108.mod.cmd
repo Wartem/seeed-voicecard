@@ -1,0 +1,1 @@
+savedcmd_/home/wartem/seeed-voicecard/snd-soc-ac108.mod := printf '%s\n'   ac108.o ac101.o | awk '!x[$$0]++ { print("/home/wartem/seeed-voicecard/"$$0) }' > /home/wartem/seeed-voicecard/snd-soc-ac108.mod

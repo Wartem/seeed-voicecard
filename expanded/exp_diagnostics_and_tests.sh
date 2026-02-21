@@ -1,1048 +1,977 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Expanded Test script for ReSpeaker devices with comprehensive diagnostics
+set -u
 
-if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root (use sudo)" 1>&2
-   exit 1
-fi
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMP_FILES=()
 
-show_general_system_info() {
-    echo "Gathering detailed system information..."
-
-    echo -e "\n=== General System Info ==="
-    uname -a
-    cat /etc/os-release
-    echo "Kernel version: $(uname -r)"
-    echo "CPU Info:"
-    cat /proc/cpuinfo | grep "model name" | uniq
-    echo "Total RAM: $(free -h | awk '/^Mem:/ {print $2}')"
-    echo "Available RAM: $(free -h | awk '/^Mem:/ {print $7}')"
-
-    echo -e "\n=== Disk Space Info ==="
-    df -h
-
-    echo -e "\n=== Network Interfaces ==="
-    ip addr show
-    echo "Routing table (route -n):"
-    route -n
-    echo "Network Configuration (ifconfig):"
-    ifconfig -a
-
-    echo -e "\n=== USB Devices ==="
-    lsusb
-
-    echo -e "\n=== I2C Devices ==="
-    echo "Detecting I2C devices on bus 1:"
-    i2cdetect -y 1
-
-    echo -e "\n=== GPIO Status ==="
-    gpio readall
-
-    echo -e "\n=== System Logs (dmesg) ==="
-    dmesg | tail -n 50
-
-    echo -e "\n=== Mounted Filesystems ==="
-    mount
-
-    echo -e "\n=== Uptime Information ==="
-    uptime
-
-    echo -e "\n=== CPU Load Average ==="
-    cat /proc/loadavg
-
-    echo -e "\n=== Running Processes ==="
-    ps aux --sort=-%mem | head -n 10
-
-    echo -e "\n=== Systemd Services Status ==="
-    systemctl list-units --type=service --state=running --no-pager
+log() {
+    echo "[INFO] $*"
 }
 
-show_audio_info() {
-    echo "Gathering detailed audio system information..."
-
-    echo -e "\n=== ALSA Information ==="
-    echo "ALSA Cards:"
-    cat /proc/asound/cards
-    echo "Playback Devices (aplay -l):"
-    aplay -l
-    echo "Recording Devices (arecord -l):"
-    arecord -l
-    echo "ALSA version:"
-    alsactl --version
-    echo "ALSA Mixer:"
-    amixer
-
-    echo -e "\n=== PulseAudio Information ==="
-    pulseaudio --version
-    pactl info
-    echo "PulseAudio Sinks:"
-    pactl list sinks short
-    echo "PulseAudio Sources:"
-    pactl list sources short
-
-    echo -e "\n=== Sound Modules Loaded ==="
-    echo "Checking loaded sound-related modules (snd):"
-    lsmod | grep snd
-
-    echo -e "\n=== Device Tree Overlays ==="
-    vcdbg log msg | grep -i seeed
-
-    echo -e "\n=== Kernel Messages (dmesg) for ReSpeaker ==="
-    dmesg | grep -i "seeed\|respeaker\|wm8960"
-
-    echo -e "\n=== Audio Configuration Files ==="
-    echo "Content of /etc/asound.conf:"
-    cat /etc/asound.conf 2>/dev/null || echo "File not found"
-    echo -e "\nContent of ~/.asoundrc:"
-    cat ~/.asoundrc 2>/dev/null || echo "File not found"
-
-    echo -e "\n=== List of All Audio Related Packages ==="
-    dpkg --list | grep "alsa\|pulse\|audio"
-
-    echo -e "\n=== PCM Devices and Playback Testing ==="
-    echo "PCM Devices (aplay -L):"
-    aplay -L
-    echo "Testing audio playback (speaker-test)..."
-    speaker-test -t wav -l 1
+warn() {
+    echo "[WARN] $*" >&2
 }
 
-run_alsamixer() {
-    echo alsamixer
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
 }
 
-# Function to play a system sound
-play_system_sound() {
-    echo "Playing system sound..."
-
-    # Example sound file path (adjust based on your system)
-    sound_file="/usr/share/sounds/alsa/Front_Center.wav"
-
-    if [ -f "$sound_file" ]; then
-        aplay "$sound_file"
-        echo "System sound playback completed."
-    else
-        echo "System sound file not found."
+require_root() {
+    if [[ ${EUID} -ne 0 ]]; then
+        echo "This script must be run as root (use sudo)." >&2
+        exit 1
     fi
 }
 
-# Function to play a simple beep sound
-play_beep_sound() {
-    echo "Playing beep sound..."
-    speaker-test -t sine -f 1000 -l 1
-    echo "Beep sound test completed."
+press_enter_to_continue() {
+    restore_terminal_state
+    echo
+    read -r -p "Press Enter to continue..."
 }
 
-# Function to play a simple beep sound
-play_beep_sound() {
-    echo "Playing beep sound..."
-    speaker-test -t sine -f 1000 -l 1
-    echo "Beep sound test completed."
-}
-
-# Function to test audio recording once
-test_recording_simple() {
-    echo "Testing audio recording..."
-
-    # Default format and sample rate
-    format=S16_LE
-    rate=44100
-
-    echo "Recording audio: Format $format, Rate $rate Hz (Speak for 5 seconds)"
-    arecord -D plughw:0,0 -f $format -r $rate -d 5 -c 2 test_recording.wav
-
-    echo "Playing back the recorded audio..."
-    aplay test_recording.wav
-
-    # Test complete
-    echo "Audio recording test completed."
-    rm test_recording.wav
-}
-
-# Function to test the first microphone in the array
-test_mic_array_simple() {
-    echo "Testing microphone array..."
-
-    # Using card 0 (default) and microphone 0 (default) as standard values
-    card=0
-    mic=0
-
-    echo "Testing microphone $mic on card $card (Speak for 3 seconds)"
-    arecord -D hw:$card,$mic -d 3 -f S16_LE -r 16000 -c 1 mic_test.wav
-
-    echo "Playing back recording from microphone $mic"
-    aplay mic_test.wav
-
-    # No user input required, just check if the process works
-    echo "Microphone $mic on card $card test completed."
-}
-
-# Added new submenu for package info and installation
-display_package_info_menu() {
-    clear
-    echo "====================================================="
-    echo "            Package Info and Installation"
-    echo "====================================================="
-    echo "1. Show alsa-utils Info"
-    echo "2. Show i2c-tools Info"
-    echo "3. Show libasound2-dev Info"
-    echo "4. Show portaudio19-dev Info"
-    echo "5. Install All Packages"
-    echo "6. Back to Main Menu"
-    echo "====================================================="
-    echo "Please enter your choice (1-6):"
-}
-
-# Show package information functions
-show_alsa_utils_info() {
-    echo -e "\n=== alsa-utils ==="
-    apt show alsa-utils
-}
-
-show_i2c_tools_info() {
-    echo -e "\n=== i2c-tools ==="
-    apt show i2c-tools
-}
-
-show_libasound2_dev_info() {
-    echo -e "\n=== libasound2-dev ==="
-    apt show libasound2-dev
-}
-
-show_portaudio19_dev_info() {
-    echo -e "\n=== portaudio19-dev ==="
-    apt show portaudio19-dev
-}
-
-# Install all relevant packages
-install_all_packages() {
-    echo "Installing alsa-utils, i2c-tools, libasound2-dev, portaudio19-dev..."
-    apt update
-    apt install -y alsa-utils i2c-tools libasound2-dev portaudio19-dev
-    echo "Installation completed."
-}
-
-# Handle Package Info and Installation menu
-handle_package_info_menu() {
-    while true; do
-        display_package_info_menu
-        read -r choice
-        case $choice in
-            1) show_alsa_utils_info; press_enter_to_continue ;;
-            2) show_i2c_tools_info; press_enter_to_continue ;;
-            3) show_libasound2_dev_info; press_enter_to_continue ;;
-            4) show_portaudio19_dev_info; press_enter_to_continue ;;
-            5) install_all_packages; press_enter_to_continue ;;
-            6) break ;;
-            *) echo "Invalid option. Please try again." ;;
-        esac
+cleanup_temp_files() {
+    local f
+    for f in "${TEMP_FILES[@]}"; do
+        [[ -n "$f" ]] && rm -f "$f"
     done
 }
 
-# Function to test audio playback
-test_mic_array_advanced() {
-    echo "Testing microphone array..."
+register_temp_file() {
+    TEMP_FILES+=("$1")
+}
 
-    # List all cards with 'seeed' and allow the user to pick one
-    arecord -l | grep -i seeed
-    echo "Please enter the card number you want to test (e.g., 1):"
-    read -r card
-
-    # Get the number of channels for the chosen card
-    local channels=$(arecord -D plughw:$card,0 --dump-hw-params | grep "channels" | awk '{print $2}')
-    echo "Detected $channels channels on card $card."
-
-    # Allow the user to select which microphone to test
-    echo "Please enter the microphone number you want to test (0 to $(($channels-1))):"
-    read -r mic
-
-    # Record a test from the selected microphone
-    echo "Testing microphone $mic on card $card (Speak for 3 seconds)"
-    arecord -D hw:$card,$mic -d 3 -f S16_LE -r 16000 -c 1 mic_test_${card}_${mic}.wav
-
-    # Playback the recorded audio
-    echo "Playing back recording from microphone $mic"
-    aplay mic_test_${card}_${mic}.wav
-
-    # Ask the user if the test was successful
-    echo "Did you hear clear audio from microphone $mic? (y/n)"
-    read -r mic_test_result
-
-    if [ "$mic_test_result" = "y" ]; then
-        echo "Microphone $mic on card $card test passed."
+restore_terminal_state() {
+    # Interactive commands can leave TTY flags altered; always restore the real TTY.
+    if [[ -r /dev/tty ]]; then
+        stty sane < /dev/tty 2>/dev/null || true
+        stty opost onlcr < /dev/tty 2>/dev/null || true
+        printf '\033[0m\033[?7h\033[?25h' > /dev/tty 2>/dev/null || true
     else
-        echo "Microphone $mic on card $card test failed or audio unclear."
+        stty sane 2>/dev/null || true
+        stty opost onlcr 2>/dev/null || true
+        printf '\033[0m\033[?7h\033[?25h' 2>/dev/null || true
     fi
 }
 
-# Function to test audio recording
-test_recording_advanced() {
-    echo "Testing audio recording..."
+detect_seeed_card() {
+    local line
 
-    # Let the user choose the audio format and rate
-    echo "Enter the audio format you want to test (e.g., S16_LE, S24_LE, S32_LE):"
-    read -r format
-
-    echo "Enter the sample rate you want to test (e.g., 44100, 48000, 96000):"
-    read -r rate
-
-    # Perform the recording based on user input
-    echo "Testing recording: Format $format, Rate $rate Hz (Speak for 5 seconds)"
-    arecord -D plughw:0,0 -f $format -r $rate -d 5 -c 2 test_${format}_${rate}.wav
-
-    # Playback the recorded audio
-    echo "Playing back the recorded audio..."
-    aplay test_${format}_${rate}.wav
-
-    # Ask the user if the test was successful
-    echo "Did you hear your recording clearly? (y/n)"
-    read -r heard_recording
-
-    if [ "$heard_recording" = "y" ]; then
-        echo "Audio recording test passed for $format at $rate Hz."
-    else
-        echo "Audio recording test failed for $format at $rate Hz."
+    if ! command_exists arecord; then
+        return 1
     fi
 
-    # Clean up the test file
-    rm test_${format}_${rate}.wav
+    line="$(arecord -l 2>/dev/null | awk '/^card [0-9]+:/{if (tolower($0) ~ /seeed|respeaker|voicecard/) {print; exit}}')"
+    [[ -n "$line" ]] || return 1
+
+    echo "$line" | sed -E 's/^card ([0-9]+):.*/\1/'
 }
 
-#If the service file has incorrect permissions, fix them:
-#bashCopysudo chmod 644 /lib/systemd/system/seeed-voicecard.service
-#sudo systemctl daemon-reload
-
-# Function to reload audio modules
-reload_audio_modules() {
-    echo "Reloading audio modules..."
-    rmmod snd_soc_seeed_voicecard
-    rmmod snd_soc_wm8960
-    modprobe snd_soc_wm8960
-    modprobe snd_soc_seeed_voicecard
-    echo "Audio modules reloaded. Checking status:"
-    lsmod | grep "seeed\|wm8960"
+detect_playback_card() {
+    local card
+    card="$(detect_seeed_card || true)"
+    [[ -n "$card" ]] || card="0"
+    echo "$card"
 }
 
-# Function to test PulseAudio interference
-check_pulseaudio() {
-    echo "General information about PulseAudio install..."
-    dpkg -s pulseaudio
-    pulseaudio --version
-    echo "Checking for PulseAudio interference..."
-    pulseaudio --kill
-    echo "PulseAudio killed. Testing ALSA directly..."
-    aplay -D plughw:0,0 /usr/share/sounds/alsa/Front_Center.wav
-    echo "Did the audio play after PulseAudio was killed? (y/n)"
-    read pulseaudio_result
-    if [ "$pulseaudio_result" = "y" ]; then
-        echo "Audio works without PulseAudio. PulseAudio may be interfering with ALSA."
-    else
-        echo "Audio still not working without PulseAudio. The issue may be with ALSA configuration."
-    fi
-    echo "Restarting PulseAudio..."
-    pulseaudio --start
-    echo "Testing audio with PulseAudio..."
-    paplay /usr/share/sounds/alsa/Front_Center.wav
-    echo "Did the audio play with PulseAudio? (y/n)"
-    read pulseaudio_play_result
-    if [ "$pulseaudio_play_result" = "y" ]; then
-        echo "Audio works with PulseAudio."
-    else
-        echo "Audio not working with PulseAudio. Further investigation needed."
-    fi
-}
+LAST_ARECORD_BUSY=0
 
-general_pulseaudio_info(){
+report_busy_playback_holders() {
+    local card="$1"
+    local dev="/dev/snd/pcmC${card}D0p"
+    local pids
+    local pid
+    local info
 
-echo "## PulseAudio and ALSA on Raspberry Pi"
-echo
-echo "PulseAudio is an advanced sound server that sits on top of the ALSA (Advanced Linux Sound Architecture) layer in Linux-based operating systems like Raspberry Pi OS. It acts as an intermediary between applications and the underlying audio hardware, providing additional features and flexibility for audio management."
-echo
-
-echo "## Reasons to Use PulseAudio"
-echo
-echo "PulseAudio offers several advantages:"
-echo
-echo "1. Device management: It allows seamless switching between audio devices and provides better support for USB and Bluetooth audio devices."
-echo "2. Per-application volume control: Users can adjust volume levels for individual applications."
-echo "3. Network audio: PulseAudio enables audio streaming over networks."
-echo "4. Mixing and resampling: It can mix multiple audio streams and perform resampling when needed."
-echo
-
-echo "## Reasons to Avoid PulseAudio"
-echo
-echo "However, there are situations where running ALSA directly might be preferable:"
-echo
-echo "1. Lower latency: ALSA generally provides lower audio latency, which is crucial for real-time audio applications or music production."
-echo "2. Resource usage: PulseAudio consumes more system resources, which can be significant on lower-powered Raspberry Pi models."
-echo "3. Simplicity: For basic audio setups, ALSA might be sufficient and easier to configure."
-echo "4. Compatibility: Some older or specialized audio applications may work better with ALSA directly."
-echo
-
-echo "## When PulseAudio is Better"
-echo
-echo "PulseAudio is generally better for:"
-echo
-echo "1. Desktop environments: It provides a more user-friendly experience for typical desktop usage."
-echo "2. Multiple audio sources: When dealing with various audio inputs and outputs simultaneously."
-echo "3. Bluetooth audio: PulseAudio offers improved support for Bluetooth devices."
-echo "4. Modern applications: Many current applications are designed with PulseAudio in mind."
-echo
-
-echo "In summary, while PulseAudio offers advanced features and better device support, running ALSA directly can be beneficial for low-latency audio tasks, 
-      resource-constrained systems, or specific audio applications. The choice depends on your specific use case and hardware capabilities."
-
-echo "## Installing PulseAudio on Raspberry Pi"
-echo
-echo "To install PulseAudio on a Raspberry Pi, follow these steps:"
-echo
-
-echo "1. Update your system:"
-echo "   sudo apt update"
-echo "   sudo apt upgrade"
-echo
-
-echo "2. Install PulseAudio and related packages:"
-echo "   sudo apt install pulseaudio pulseaudio-module-bluetooth"
-echo
-
-echo "## Additional Considerations"
-echo
-echo "- Desktop Environments: Many popular desktop environments like Cinnamon, KDE, and MATE already include PulseAudio by default."
-echo
-echo "- ALSA Integration: PulseAudio automatically manages ALSA devices when installed on Raspberry Pi OS."
-echo
-echo "- Bluetooth Support: To enable Bluetooth audio support, ensure pulseaudio-module-bluetooth is installed."
-echo
-echo "- Equalizer: If you need equalizer functionality, install pulseaudio-equalizer with:"
-echo "   sudo apt install pulseaudio-equalizer"
-echo
-
-echo "## Post-Installation Steps"
-echo
-echo "1. Enable PulseAudio socket for user services:"
-echo "   systemctl --user enable pulseaudio.socket"
-echo "   systemctl --user start pulseaudio.socket"
-echo
-echo "2. Reboot your Raspberry Pi to apply the changes:"
-echo "   sudo reboot"
-echo
-echo "3. Verify installation by running:"
-echo "   pulseaudio --version"
-echo
-
-echo "Note: For Raspberry Pi OS Lite, PulseAudio is not included by default and must be installed manually. Ensure you have enough storage space available for the installation."
-}
-
-# Function to install PulseAudio and configure it
-install_pulseaudio() {
-    # Ask user if they want to install PulseAudio
-    read -p "Do you want to install PulseAudio now? (yes/no): " install_choice
-    if [[ ! $install_choice =~ ^[Yy][Ee][Ss]$ ]]; then
-        echo "PulseAudio installation cancelled."
+    [[ -e "$dev" ]] || return 0
+    if ! command_exists fuser; then
         return 0
     fi
 
-    echo "## Installing PulseAudio on Raspberry Pi"
+    pids="$(fuser "$dev" 2>/dev/null | tr -s '[:space:]' ' ' | sed -E 's/^ +//; s/ +$//')"
+    [[ -n "$pids" ]] || return 0
 
-    # Step 1: Update the system
-    echo "Updating the system..."
-    sudo apt update && sudo apt upgrade -y
-    if [ $? -ne 0 ]; then
-        echo "System update failed. Exiting."
-        return 1
+    warn "Playback device busy: ${dev} (PID(s): ${pids})"
+    if ! command_exists ps; then
+        return 0
     fi
 
-    # Step 2: Install PulseAudio and Bluetooth module
-    echo "Installing PulseAudio and related packages..."
-    sudo apt install -y pulseaudio pulseaudio-module-bluetooth
-    if [ $? -ne 0 ]; then
-        echo "PulseAudio installation failed. Exiting."
-        return 1
+    for pid in $pids; do
+        info="$(ps -p "$pid" -o pid=,user=,cmd= 2>/dev/null | sed -E 's/^ +//; s/ +/ /g')"
+        [[ -n "$info" ]] && warn "Holder: ${info}"
+    done
+}
+
+report_busy_capture_holders() {
+    local card="$1"
+    local dev="/dev/snd/pcmC${card}D0c"
+    local pids
+    local pid
+    local info
+
+    [[ -e "$dev" ]] || return 0
+    if ! command_exists fuser; then
+        return 0
     fi
 
-    # Step 3: Optionally install PulseAudio Equalizer
-    read -p "Do you want to install the PulseAudio equalizer? (y/n): " install_eq
-    if [ "$install_eq" = "y" ]; then
-        echo "Installing PulseAudio equalizer..."
-        sudo apt install -y pulseaudio-equalizer
-        if [ $? -ne 0 ]; then
-            echo "PulseAudio equalizer installation failed. Exiting."
-            return 1
-        fi
+    pids="$(fuser "$dev" 2>/dev/null | tr -s '[:space:]' ' ' | sed -E 's/^ +//; s/ +$//')"
+    [[ -n "$pids" ]] || return 0
+
+    warn "Capture device busy: ${dev} (PID(s): ${pids})"
+    if ! command_exists ps; then
+        return 0
     fi
 
-    # Step 4: Enable PulseAudio user socket
-    echo "Enabling PulseAudio user socket..."
-    systemctl --user enable pulseaudio.socket
-    if [ $? -ne 0 ]; then
-        echo "Failed to enable PulseAudio socket. Exiting."
-        return 1
+    for pid in $pids; do
+        info="$(ps -p "$pid" -o pid=,user=,cmd= 2>/dev/null | sed -E 's/^ +//; s/ +/ /g')"
+        [[ -n "$info" ]] && warn "Holder: ${info}"
+    done
+}
+
+arecord_seeed() {
+    local card="$1"
+    shift
+    local err=""
+
+    LAST_ARECORD_BUSY=0
+    if err="$(arecord -D "plughw:${card},0" "$@" 2>&1)"; then
+        return 0
     fi
 
-    systemctl --user start pulseaudio.socket
-    if [ $? -ne 0 ]; then
-        echo "Failed to start PulseAudio socket. Exiting."
-        return 1
+    warn "Capture failed on plughw:${card},0"
+    [[ -n "$err" ]] && warn "arecord error: ${err}"
+    if [[ "$err" == *"Device or resource busy"* ]]; then
+        LAST_ARECORD_BUSY=1
+        report_busy_capture_holders "$card"
+    fi
+    return 1
+}
+
+aplay_seeed_file() {
+    local file="$1"
+    local card="${2:-}"
+
+    [[ -n "$card" ]] || card="$(detect_playback_card)"
+    if aplay -D "plughw:${card},0" "$file"; then
+        return 0
     fi
 
-    # Step 5: Verify installation
-    echo "Verifying PulseAudio installation..."
-    pulseaudio --version
-    if [ $? -ne 0 ]; then
-        echo "PulseAudio installation verification failed."
-        return 1
+    warn "Playback failed on plughw:${card},0"
+    report_busy_playback_holders "$card"
+    return 1
+}
+
+get_capture_channel_count() {
+    local card="$1"
+    local params
+    local max_channels
+
+    params="$(arecord -D "plughw:${card},0" --dump-hw-params -d 1 /dev/null 2>&1 || true)"
+    max_channels="$(echo "$params" | sed -n -E 's/.*CHANNELS:[[:space:]]*\[[0-9]+[[:space:]]+([0-9]+)\].*/\1/p' | head -n 1)"
+
+    if [[ -z "$max_channels" ]]; then
+        max_channels="$(echo "$params" | sed -n -E 's/.*channels:[[:space:]]*([0-9]+).*/\1/p' | head -n 1)"
     fi
 
-    # Step 6: Reboot system if desired
-    read -p "Do you want to reboot now? (y/n): " reboot_choice
-    if [ "$reboot_choice" = "y" ]; then
-        echo "Rebooting system..."
-        sudo reboot
+    if [[ -z "$max_channels" ]]; then
+        max_channels="2"
+    fi
+
+    echo "$max_channels"
+}
+
+show_general_system_info() {
+    echo "=== General System Info ==="
+    uname -a
+    echo
+
+    if [[ -f /etc/os-release ]]; then
+        cat /etc/os-release
+        echo
+    fi
+
+    echo "Kernel version: $(uname -r)"
+    if command_exists lscpu; then
+        lscpu | sed -n '1,12p'
     else
-        echo "Reboot skipped. Please reboot manually for all changes to take effect."
+        grep -m1 "model name" /proc/cpuinfo || true
     fi
 
-    echo "PulseAudio installation and configuration completed successfully."
-}
+    echo
+    echo "=== Memory and Disk ==="
+    free -h
+    df -h
 
-# Function to write asound.conf version 1
-write_asound_conf_v1() {
-    sudo tee /etc/asound.conf << EOF
-# The IPC key of dmix or dsnoop plugin must be unique
-# If 555555 or 666666 is used by other processes, use another one
-
-# use samplerate to resample as speexdsp resample is bad
-defaults.pcm.rate_converter "samplerate"
-
-pcm.!default {
-    type asym
-    playback.pcm "playback"
-    capture.pcm "capture"
-}
-
-pcm.playback {
-    type plug
-    slave.pcm "dmixed"
-}
-
-pcm.capture {
-    type plug
-    slave.pcm "array"
-}
-
-pcm.dmixed {
-    type dmix
-    slave.pcm "hw:seeed2micvoicec"
-    ipc_key 555555
-}
-
-pcm.array {
-    type dsnoop
-    slave {
-        pcm "hw:seeed2micvoicec"
-        channels 2
-    }
-    ipc_key 666666
-}
-EOF
-    echo "asound.conf version 1 has been written."
-    echo "A reboot is required for changes to take effect."
-    read -p "Do you want to reboot now? (y/n): " reboot_choice
-    if [[ $reboot_choice =~ ^[Yy]$ ]]; then
-        sudo reboot
+    echo
+    echo "=== Network Interfaces ==="
+    if command_exists ip; then
+        ip -brief addr
+        echo
+        ip route
     else
-        echo "Please remember to reboot your system later for the changes to take effect."
+        warn "ip command not found"
     fi
-}
 
-# Function to write asound.conf version 2
-write_asound_conf_v2() {
-    sudo tee /etc/asound.conf << EOF
-pcm.dmixed {
-    type dmix
-    ipc_key 555555
-    slave {
-        pcm "hw:seeed2micvoicec,0"   # Set to your hardware ID for the ReSpeaker
-        rate 48000     # Ensure a higher sample rate for better quality (44.1 kHz or 48 kHz)
-        period_time 0
-        period_size 1024  # Adjust for lower latency (default is 1024, you can try lowering it further, but be cautious)
-        buffer_size 4096  # Double the period size to ensure smooth playback
-    }
-    bindings {
-        0 0
-        1 1
-    }
-}
-EOF
-    echo "asound.conf version 2 has been written."
-    echo "A reboot is required for changes to take effect."
-    read -p "Do you want to reboot now? (y/n): " reboot_choice
-    if [[ $reboot_choice =~ ^[Yy]$ ]]; then
-        sudo reboot
+    echo
+    echo "=== USB Devices ==="
+    if command_exists lsusb; then
+        lsusb
     else
-        echo "Please remember to reboot your system later for the changes to take effect."
+        warn "lsusb not found"
     fi
-}
 
-# Function to write asound.conf version 3
-write_asound_conf_v3() {
-    sudo tee /etc/asound.conf << EOF
-# The IPC key of dmix or dsnoop plugin must be unique 
-# If 555555 or 666666 is used by other processes, use another one
-
-# Use samplerate for high-quality resampling
-defaults.pcm.rate_converter "samplerate"
-
-# Default device
-pcm.!default {
-    type asym
-    playback.pcm "playback"
-    capture.pcm "capture"
-}
-
-# Playback device
-pcm.playback {
-    type plug
-    slave.pcm "dmixed"
-}
-
-# Capture device
-pcm.capture {
-    type plug
-    slave.pcm "array"
-}
-
-# Dmix for playback
-pcm.dmixed {
-    type dmix
-    ipc_key 555555
-    slave {
-        pcm "hw:seeed2micvoicec,0"
-        rate 48000
-        period_time 0
-        period_size 1024
-        buffer_size 4096
-        format S32_LE
-    }
-}
-
-# Dsnoop for capture
-pcm.array {
-    type dsnoop
-    ipc_key 666666
-    slave {
-        pcm "hw:seeed2micvoicec,0"
-        channels 2
-        rate 48000
-        format S32_LE
-        period_size 1024
-        buffer_size 4096
-    }
-}
-
-# Software volume control
-pcm.softvol {
-    type softvol
-    slave.pcm "dmixed"
-    control {
-        name "Master"
-        card 0
-    }
-}
-
-# Duplex device
-pcm.duplex {
-    type asym
-    playback.pcm "softvol"
-    capture.pcm "array"
-}
-
-# Loopback device for monitoring
-pcm.loopback {
-    type plug
-    slave.pcm "hw:Loopback,0,0"
-}
-
-# JACK support (if needed)
-pcm.jack {
-    type jack
-    playback_ports {
-        0 system:playback_1
-        1 system:playback_2
-    }
-    capture_ports {
-        0 system:capture_1
-        1 system:capture_2
-    }
-}
-EOF
-    echo "asound.conf version 3 has been written."
-    echo "A reboot is required for changes to take effect."
-    read -p "Do you want to reboot now? (y/n): " reboot_choice
-    if [[ $reboot_choice =~ ^[Yy]$ ]]; then
-        sudo reboot
+    echo
+    echo "=== I2C Scan (bus 1) ==="
+    if command_exists i2cdetect; then
+        i2cdetect -y 1
     else
-        echo "Please remember to reboot your system later for the changes to take effect."
+        warn "i2cdetect not found"
     fi
+
+    echo
+    echo "=== GPIO Status ==="
+    if command_exists raspi-gpio; then
+        raspi-gpio get | sed -n '1,40p'
+    elif command_exists gpio; then
+        gpio readall
+    else
+        warn "No GPIO inspection tool found (raspi-gpio/gpio)."
+    fi
+
+    echo
+    echo "=== Recent dmesg (last 50 lines) ==="
+    dmesg | tail -n 50
+
+    echo
+    echo "=== Running services (top 40) ==="
+    systemctl list-units --type=service --state=running --no-pager | sed -n '1,40p'
 }
 
-# Function to choose and write asound.conf version
-choose_asound_conf_version() {
-    echo "Choose asound.conf version to write:"
-    echo "1. Version 1 (Default configuration)"
-    echo "2. Version 2 (Optimized for playback)"
-    echo "3. Version 3 (Enhanced capture quality)"
-    read -p "Enter your choice (1-3): " version_choice
-    case $version_choice in
-        1) write_asound_conf_v1 ;;
-        2) write_asound_conf_v2 ;;
-        3) write_asound_conf_v3 ;;
-        *) echo "Invalid choice. No changes made." ;;
-    esac
-}
+show_audio_info() {
+    echo "=== ALSA Cards ==="
+    cat /proc/asound/cards 2>/dev/null || warn "/proc/asound/cards not available"
 
-# Function to test ALSA mixer settings
-check_alsa_mixer() {
-    echo "Checking and setting ALSA mixer settings..."
-    echo amixer -c 0 sset 'Headphone',0 100%
-    echo amixer -c 0 sset 'Speaker',0 100%
-    echo amixer -c 0 sset 'Playback',0 100%
-    echo amixer -c 0 sset 'Capture',0 100%
-    echo "Current ALSA mixer settings:"
-    amixer -c 0 scontents
-}
+    echo
+    echo "=== ALSA Playback Devices (aplay -l) ==="
+    if command_exists aplay; then
+        aplay -l || true
+        echo
+        echo "=== ALSA Playback PCM Names (aplay -L) ==="
+        aplay -L || true
+    else
+        warn "aplay not found"
+    fi
 
-test_leds() {
-    echo "Testing LED functionality..."
-    
-    # Check if the LED sysfs interface exists
-    if [ -d "/sys/class/leds" ]; then
-        for led in /sys/class/leds/*; do
-            if [ -d "$led" ]; then
-                led_name=$(basename "$led")
-                echo "Testing LED: $led_name"
-                
-                # Turn LED on
-                echo 255 > "$led/brightness"
-                sleep 1
-                
-                # Turn LED off
-                echo 0 > "$led/brightness"
-                sleep 1
-            fi
-        done
-        
-        # Ask user if the LEDs worked
-        echo "LED test completed. Did you see the LEDs light up? (y/n)"
-        read led_test_result
-        if [ "$led_test_result" = "y" ]; then
-            echo "LED test passed."
+    echo
+    echo "=== ALSA Recording Devices (arecord -l) ==="
+    if command_exists arecord; then
+        arecord -l || true
+    else
+        warn "arecord not found"
+    fi
+
+    echo
+    echo "=== ALSA Mixer ==="
+    if command_exists amixer; then
+        amixer scontrols || true
+    else
+        warn "amixer not found"
+    fi
+
+    echo
+    echo "=== Loaded Sound Modules ==="
+    lsmod | grep '^snd' || warn "No snd modules currently listed"
+
+    echo
+    echo "=== Device Tree / Boot Logs (Seeed-related) ==="
+    if command_exists vcdbg; then
+        vcdbg log msg | grep -i "seeed\|respeaker\|ac108\|wm8960" || true
+    else
+        warn "vcdbg not found"
+    fi
+
+    echo
+    echo "=== Kernel Messages (Seeed-related) ==="
+    dmesg | grep -i "seeed\|respeaker\|wm8960\|ac108" || true
+
+    echo
+    echo "=== Audio Config Files ==="
+    echo "/etc/asound.conf:"
+    cat /etc/asound.conf 2>/dev/null || echo "(not found)"
+    echo
+    echo "~/.asoundrc:"
+    cat "${HOME}/.asoundrc" 2>/dev/null || echo "(not found)"
+
+    echo
+    echo "=== PulseAudio/PipeWire ==="
+    if command_exists pactl; then
+        if pactl info >/dev/null 2>&1; then
+            pactl info
+            pactl list sinks short || true
+            pactl list sources short || true
         else
-            echo "LED test failed or LEDs not visible."
+            warn "pactl is installed, but no user audio server is reachable from this root shell."
+            warn "This is expected if PulseAudio/PipeWire is not running for the current user session."
         fi
     else
-        echo "LED sysfs interface not found. Unable to test LEDs."
+        warn "pactl not found"
     fi
 }
 
-# Function to test audio recording with various formats and rates
-test_recording_advanced() {
-    echo "Advanced Audio Recording Test"
+play_system_sound() {
+    local card
+    local sound_file="/usr/share/sounds/alsa/Front_Center.wav"
 
-    # Array of formats and rates to test
-    formats=("S16_LE" "S24_LE" "S32_LE")
-    rates=(16000 44100 48000)
+    if ! command_exists aplay; then
+        warn "aplay not found"
+        return 1
+    fi
+
+    card="$(detect_playback_card)"
+
+    if [[ -f "$sound_file" ]]; then
+        aplay_seeed_file "$sound_file" "$card"
+    else
+        warn "${sound_file} not found"
+    fi
+}
+
+play_beep_sound() {
+    local card
+
+    if ! command_exists speaker-test; then
+        warn "speaker-test not found"
+        return 1
+    fi
+
+    card="$(detect_playback_card)"
+    if speaker-test -D "plughw:${card},0" -t sine -f 1000 -l 1; then
+        return 0
+    fi
+
+    warn "speaker-test playback failed on plughw:${card},0"
+    report_busy_playback_holders "$card"
+    return 1
+}
+
+test_recording_simple() {
+    local card
+    local file
+
+    if ! command_exists arecord || ! command_exists aplay; then
+        warn "arecord/aplay are required"
+        return 1
+    fi
+
+    card="$(detect_seeed_card || true)"
+    [[ -n "$card" ]] || card="0"
+
+    file="/tmp/respeaker_simple_recording.wav"
+    register_temp_file "$file"
+
+    log "Recording on plughw:${card},0 for 5 seconds"
+    arecord_seeed "$card" -f S16_LE -r 44100 -d 5 -c 2 "$file" || return 1
+    log "Playing back ${file}"
+    aplay_seeed_file "$file" "$card"
+}
+
+test_recording_matrix() {
+    local card
+    local format
+    local rate
+    local file
+    local response
+    local formats=(S16_LE S24_LE S32_LE)
+    local rates=(16000 44100 48000)
+
+    if ! command_exists arecord || ! command_exists aplay; then
+        warn "arecord/aplay are required"
+        return 1
+    fi
+
+    card="$(detect_seeed_card || true)"
+    [[ -n "$card" ]] || card="0"
 
     for format in "${formats[@]}"; do
         for rate in "${rates[@]}"; do
-            echo "Testing: Format $format, Rate $rate Hz"
-            filename="test_${format}_${rate}.wav"
-            
-            arecord -D plughw:0,0 -f "$format" -r "$rate" -d 3 -c 2 "$filename"
-            
-            echo "Recording complete. Playing back..."
-            aplay "$filename"
-            
-            echo "Did the playback sound clear? (y/n)"
-            read -r response
-            if [[ "$response" =~ ^[Yy]$ ]]; then
-                echo "Test passed for $format at $rate Hz"
+            file="/tmp/respeaker_${format}_${rate}.wav"
+            register_temp_file "$file"
+
+            echo
+            log "Testing format=${format}, rate=${rate} on plughw:${card},0"
+            if arecord_seeed "$card" -f "$format" -r "$rate" -d 3 -c 2 "$file"; then
+                aplay_seeed_file "$file" "$card" || true
+                read -r -p "Did this test sound correct? (y/n): " response
+                if [[ "$response" =~ ^[Yy]$ ]]; then
+                    echo "Result: pass (${format}, ${rate})"
+                else
+                    echo "Result: fail (${format}, ${rate})"
+                fi
             else
-                echo "Test failed for $format at $rate Hz"
+                warn "Recording failed for ${format} @ ${rate}"
+                if [[ "$LAST_ARECORD_BUSY" -eq 1 ]]; then
+                    warn "Capture matrix aborted because the capture device is busy."
+                    return 1
+                fi
             fi
-            
-            rm "$filename"
         done
     done
-
-    echo "Advanced audio recording test completed."
 }
 
-# Function to test each microphone in the array individually
-test_mic_array_comprehensive() {
-    echo "Comprehensive Microphone Array Test"
+test_mic_array_simple() {
+    local card
+    local file
 
-    # Detect ReSpeaker card
-    card=$(arecord -l | grep -i seeed | awk -F':' '{print $1}' | awk '{print $2}')
-    if [ -z "$card" ]; then
-        echo "ReSpeaker card not detected. Please check the connection."
+    if ! command_exists arecord || ! command_exists aplay; then
+        warn "arecord/aplay are required"
         return 1
     fi
 
-    echo "ReSpeaker card detected: $card"
+    card="$(detect_seeed_card || true)"
+    [[ -n "$card" ]] || card="0"
 
-    # Get number of channels
-    channels=$(arecord -D plughw:$card,0 --dump-hw-params | grep "channels" | awk '{print $2}')
-    echo "Detected $channels channels."
+    file="/tmp/respeaker_mic_simple.wav"
+    register_temp_file "$file"
 
-    for mic in $(seq 0 $((channels-1))); do
-        echo "Testing microphone $mic"
-        filename="mic_test_${card}_${mic}.wav"
-        
-        arecord -D hw:$card,$mic -d 3 -f S16_LE -r 16000 -c 1 "$filename"
-        
-        echo "Playing back recording from microphone $mic"
-        aplay "$filename"
-        
-        echo "Was the audio clear for microphone $mic? (y/n)"
-        read -r mic_test_result
-        if [[ "$mic_test_result" =~ ^[Yy]$ ]]; then
-            echo "Microphone $mic test passed."
-        else
-            echo "Microphone $mic test failed or audio unclear."
-        fi
-        
-        rm "$filename"
-    done
-
-    echo "Comprehensive microphone array test completed."
+    log "Recording mono capture from plughw:${card},0"
+    arecord_seeed "$card" -f S16_LE -r 16000 -d 3 -c 1 "$file" || return 1
+    aplay_seeed_file "$file" "$card"
 }
 
-# Function to test audio playback with various audio files
-test_audio_playback() {
-    echo "Audio Playback Test"
+test_mic_array_comprehensive() {
+    local card
+    local channels
+    local capture_file
+    local ch
+    local channel_file
+    local response
 
-    # Array of test tones and frequencies
-    tones=(100 1000 10000)
+    if ! command_exists arecord || ! command_exists aplay; then
+        warn "arecord/aplay are required"
+        return 1
+    fi
+
+    if ! command_exists sox; then
+        warn "sox is required for per-channel mic tests. Install sox and retry."
+        return 1
+    fi
+
+    card="$(detect_seeed_card || true)"
+    if [[ -z "$card" ]]; then
+        read -r -p "Could not auto-detect Seeed card. Enter ALSA card number: " card
+    fi
+
+    channels="$(get_capture_channel_count "$card")"
+    capture_file="/tmp/respeaker_mic_multichannel.wav"
+    register_temp_file "$capture_file"
+
+    log "Recording ${channels} channels from plughw:${card},0"
+    arecord_seeed "$card" -f S16_LE -r 16000 -d 4 -c "$channels" "$capture_file" || return 1
+
+    for ch in $(seq 1 "$channels"); do
+        channel_file="/tmp/respeaker_mic_ch${ch}.wav"
+        register_temp_file "$channel_file"
+
+        sox "$capture_file" "$channel_file" remix "$ch"
+        echo
+        log "Playing channel ${ch}/${channels}"
+        aplay_seeed_file "$channel_file" "$card"
+
+        read -r -p "Channel ${ch} sounds correct? (y/n): " response
+        if [[ "$response" =~ ^[Yy]$ ]]; then
+            echo "Channel ${ch}: pass"
+        else
+            echo "Channel ${ch}: fail"
+        fi
+    done
+}
+
+test_audio_playback_tones() {
+    local card
+    local tone
+    local file
+    local response
+    local tones=(100 1000 10000)
+
+    if ! command_exists sox || ! command_exists aplay; then
+        warn "sox and aplay are required"
+        return 1
+    fi
+
+    card="$(detect_playback_card)"
 
     for tone in "${tones[@]}"; do
-        echo "Generating $tone Hz test tone..."
-        sox -n -r 44100 -b 16 "test_tone_${tone}.wav" synth 3 sine $tone
+        file="/tmp/respeaker_tone_${tone}.wav"
+        register_temp_file "$file"
 
-        echo "Playing $tone Hz test tone..."
-        aplay "test_tone_${tone}.wav"
+        sox -n -r 44100 -b 16 "$file" synth 3 sine "$tone"
+        aplay_seeed_file "$file" "$card"
 
-        echo "Did you hear the $tone Hz tone clearly? (y/n)"
-        read -r response
+        read -r -p "Did ${tone} Hz play clearly? (y/n): " response
         if [[ "$response" =~ ^[Yy]$ ]]; then
-            echo "Playback test passed for $tone Hz"
+            echo "Tone ${tone} Hz: pass"
         else
-            echo "Playback test failed for $tone Hz"
+            echo "Tone ${tone} Hz: fail"
         fi
+    done
+}
 
-        rm "test_tone_${tone}.wav"
+run_all_audio_tests() {
+    play_system_sound || true
+    play_beep_sound || true
+    test_recording_simple || true
+    test_mic_array_comprehensive || true
+    test_audio_playback_tones || true
+}
+
+check_alsa_mixer() {
+    if ! command_exists amixer; then
+        warn "amixer not found"
+        return 1
+    fi
+
+    amixer -c 0 scontrols || true
+    echo
+    amixer -c 0 scontents || true
+}
+
+test_leds() {
+    local led
+    local led_name
+    local max_brightness
+    local response
+
+    if [[ ! -d /sys/class/leds ]]; then
+        warn "No /sys/class/leds interface found"
+        return 1
+    fi
+
+    for led in /sys/class/leds/*; do
+        [[ -d "$led" ]] || continue
+
+        led_name="$(basename "$led")"
+        max_brightness="$(cat "$led/max_brightness" 2>/dev/null || echo 255)"
+
+        echo "Testing LED: ${led_name}"
+        echo "$max_brightness" > "$led/brightness"
+        sleep 1
+        echo 0 > "$led/brightness"
+        sleep 1
     done
 
-    echo "Audio playback test completed."
+    read -r -p "Did LEDs respond during test? (y/n): " response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        echo "LED test: pass"
+    else
+        echo "LED test: fail"
+    fi
 }
 
-# Main function to run all tests
-run_all_tests() {
-    echo "Running all ReSpeaker HAT tests..."
-    test_recording_advanced
-    test_mic_array_comprehensive
-    test_audio_playback
-    echo "All tests completed."
+reload_audio_modules() {
+    local module
+
+    for module in snd_soc_seeed_voicecard snd_soc_wm8960 snd_soc_ac108; do
+        modprobe -r "$module" >/dev/null 2>&1 || true
+    done
+
+    for module in snd_soc_ac108 snd_soc_wm8960 snd_soc_seeed_voicecard; do
+        if ! modprobe "$module" >/dev/null 2>&1; then
+            warn "Failed to load ${module}"
+        fi
+    done
+
+    lsmod | grep -E 'snd_soc_(seeed_voicecard|wm8960|ac108)' || true
 }
 
-# Function to check for firmware updates and display relevant repositories
+show_audio_server_status() {
+    echo "=== Running Audio Server Processes ==="
+    pgrep -a pulseaudio || echo "pulseaudio: not running"
+    pgrep -a pipewire || echo "pipewire: not running"
+    pgrep -a wireplumber || echo "wireplumber: not running"
+
+    echo
+    echo "=== Package Presence ==="
+    show_package_line pulseaudio
+    show_package_line pipewire
+    show_package_line wireplumber
+}
+
+run_alsamixer() {
+    if ! command_exists alsamixer; then
+        warn "alsamixer not found"
+        return 1
+    fi
+
+    alsamixer
+    restore_terminal_state
+}
+
+apply_asound_profile() {
+    local choice
+    local target_conf=""
+    local target_state=""
+    local backup_file
+
+    echo "Choose ALSA profile to apply:"
+    echo "1) 2-mic profile"
+    echo "2) 4-mic profile"
+    echo "3) 6-mic/8-mic profile"
+    echo "4) Cancel"
+    read -r -p "Enter choice (1-4): " choice
+
+    case "$choice" in
+        1)
+            target_conf="/etc/voicecard/asound_2mic.conf"
+            target_state="/etc/voicecard/wm8960_asound.state"
+            ;;
+        2)
+            target_conf="/etc/voicecard/asound_4mic.conf"
+            target_state="/etc/voicecard/ac108_asound.state"
+            ;;
+        3)
+            target_conf="/etc/voicecard/asound_6mic.conf"
+            target_state="/etc/voicecard/ac108_6mic.state"
+            ;;
+        *)
+            echo "No changes made."
+            return 0
+            ;;
+    esac
+
+    if [[ ! -f "$target_conf" ]]; then
+        warn "Missing profile: ${target_conf}"
+        return 1
+    fi
+
+    if [[ -e /etc/asound.conf && ! -L /etc/asound.conf ]]; then
+        backup_file="/etc/asound.conf.backup.$(date +%Y%m%d%H%M%S)"
+        cp /etc/asound.conf "$backup_file"
+        log "Backed up /etc/asound.conf to ${backup_file}"
+    fi
+
+    ln -sfn "$target_conf" /etc/asound.conf
+    log "Linked /etc/asound.conf -> ${target_conf}"
+
+    if [[ -f "$target_state" ]]; then
+        mkdir -p /var/lib/alsa
+        ln -sfn "$target_state" /var/lib/alsa/asound.state
+        log "Linked /var/lib/alsa/asound.state -> ${target_state}"
+    else
+        warn "Missing state file: ${target_state}"
+    fi
+
+    alsactl restore || warn "alsactl restore failed"
+}
+
+show_package_line() {
+    local package="$1"
+    local version
+
+    if dpkg -s "$package" >/dev/null 2>&1; then
+        version="$(dpkg-query -W -f='${Version}' "$package" 2>/dev/null)"
+        echo "${package}: installed (${version})"
+    else
+        echo "${package}: not installed"
+    fi
+}
+
+show_package_status() {
+    echo "=== Core Package Status ==="
+    show_package_line dkms
+    show_package_line device-tree-compiler
+    show_package_line i2c-tools
+    show_package_line alsa-utils
+    show_package_line libasound2-plugins
+    show_package_line sox
+    show_package_line pulseaudio
+    show_package_line pipewire
+}
+
 check_firmware_updates() {
-    # List of interesting repositories
-
-    echo -e "\nRelevant repositories for updates and information:"
-    echo "1. Original Seeed ReSpeaker: https://github.com/respeaker/seeed-voicecard"
-    echo "2. HinTak's fork: https://github.com/HinTak/seeed-voicecard"
-    
-    echo -e "\nIf this fork doesn't work, please check the following repositories."
-    echo "For the latest updates, search GitHub for terms such as:"
-    echo -e "\t\"seeed\", \"seeed-voicecard\", and related keywords."
-    echo "Additionally, consider using tools like Perplexity AI to assist in your research."
-    
-    # Placeholder for actual update mechanism
-    echo -e "\nTo update, you may need to manually clone and install from the desired repository."
-    echo "First make sure an update is available."
-    echo "Then do this, for example:"
-    echo "git clone https://github.com/HinTak/seeed-voicecard"
-    echo "cd seeed-voicecard"
-    echo "sudo ./install.sh"
+    echo "Relevant repositories:"
+    echo "1. Original Seeed repo: https://github.com/respeaker/seeed-voicecard"
+    echo "2. HinTak fork: https://github.com/HinTak/seeed-voicecard"
+    echo "3. This fork: https://github.com/Wartem/seeed-voicecard"
+    echo
+    echo "To compare updates:"
+    echo "- Review recent commits in each repo"
+    echo "- Compare kernel compatibility patches and install scripts"
 }
 
-# Updated Main Menu with Package Info and Installation option
+run_smoke_test_workflow() {
+    local smoke_script="${SCRIPT_DIR}/exp_post_install_smoke_test.sh"
+
+    if [[ ! -x "$smoke_script" ]]; then
+        warn "Smoke test script not found or not executable: ${smoke_script}"
+        return 1
+    fi
+
+    "$smoke_script"
+}
+
+run_doctor_workflow() {
+    local doctor_script="${SCRIPT_DIR}/exp_doctor.sh"
+
+    if [[ ! -x "$doctor_script" ]]; then
+        warn "Doctor script not found or not executable: ${doctor_script}"
+        return 1
+    fi
+
+    "$doctor_script"
+}
+
 display_main_menu() {
+    restore_terminal_state
     clear
     echo "====================================================="
-    echo "    ReSpeaker HAT Diagnostic and Test Tool for Raspberry Pi"
+    echo " ReSpeaker HAT Diagnostic and Test Tool (Reworked)"
     echo "====================================================="
     echo "1. System Information"
     echo "2. Audio Tests"
     echo "3. Hardware Tests"
     echo "4. Maintenance"
-    echo "5. Package Info and Installation"
+    echo "5. Package Status"
     echo "6. Exit"
     echo "====================================================="
-    echo "Please enter your choice (1-6):"
+    echo "Enter choice (1-6):"
 }
 
-# System Information sub-menu
 display_system_info_menu() {
+    restore_terminal_state
     clear
-    echo "====================================================="
-    echo "             System Information Menu"
-    echo "====================================================="
+    echo "================= System Information ================="
     echo "1. Show General System Info"
     echo "2. Show Detailed Audio Info"
-    echo "3. Back to Main Menu"
-    echo "====================================================="
-    echo "Please enter your choice (1-3):"
+    echo "3. Back"
+    echo "======================================================"
+    echo "Enter choice (1-3):"
 }
 
 display_audio_tests_menu() {
+    restore_terminal_state
     clear
-    echo "====================================================="
-    echo "                 Audio Tests Menu"
-    echo "====================================================="
+    echo "==================== Audio Tests ====================="
     echo "1. Play System Sound"
-    echo "2. Play Loud Beep Sound"
-    echo "3. Test Microphone Array (Simple)"
-    echo "4. Test Microphone Array (Advanced)"
-    echo "5. Test Audio Recording (Simple)"
-    echo "6. Test Audio Recording (Advanced)"
-    echo "7. Test Microphone Array (Comprehensive)"
-    echo "8. Test Audio Playback"
-    echo "9. Run All Tests"
-    echo "10. Back to Main Menu"
-    echo "====================================================="
-    echo "Please enter your choice (1-10):"
+    echo "2. Play Beep Sound"
+    echo "3. Test Recording (Simple)"
+    echo "4. Test Recording (Matrix)"
+    echo "5. Test Mic Array (Simple)"
+    echo "6. Test Mic Array (Comprehensive)"
+    echo "7. Test Audio Playback Tones"
+    echo "8. Run All Audio Tests"
+    echo "9. Back"
+    echo "======================================================"
+    echo "Enter choice (1-9):"
 }
 
-# Hardware Tests sub-menu
 display_hardware_tests_menu() {
+    restore_terminal_state
     clear
-    echo "====================================================="
-    echo "               Hardware Tests Menu"
-    echo "====================================================="
+    echo "=================== Hardware Tests ==================="
     echo "1. Test LEDs"
-    echo "2. Check ALSA Mixer Settings"
-    echo "3. Back to Main Menu"
-    echo "====================================================="
-    echo "Please enter your choice (1-3):"
+    echo "2. Inspect ALSA Mixer"
+    echo "3. Back"
+    echo "======================================================"
+    echo "Enter choice (1-3):"
 }
 
-# Updated Maintenance sub-menu
 display_maintenance_menu() {
+    restore_terminal_state
     clear
-    echo "====================================================="
-    echo "               Maintenance Menu"
-    echo "====================================================="
+    echo "==================== Maintenance ====================="
     echo "1. Reload Audio Modules"
-    echo "2. Check PulseAudio Interference (not installed by default)"
-    echo "3. Installation options for PulseAudio, including information."
-    echo "4. Check for Firmware Updates"
-    echo "5. Run Alsamixer"
-    echo "6. Choose and Write asound.conf Version"
-    echo "7. Back to Main Menu"
-    echo "====================================================="
-    echo "Please enter your choice (1-7):"
+    echo "2. Show Audio Server Status"
+    echo "3. Open alsamixer"
+    echo "4. Apply asound profile"
+    echo "5. Run smoke test (PASS/WARN/FAIL verdict)"
+    echo "6. Run doctor (auto-config + validation)"
+    echo "7. Show firmware/source references"
+    echo "8. Back"
+    echo "======================================================"
+    echo "Enter choice (1-8):"
 }
-# Function to handle System Information menu
+
 handle_system_info_menu() {
+    local choice
+
     while true; do
         display_system_info_menu
         read -r choice
-        case $choice in
-            1) show_general_system_info; press_enter_to_continue ;;
-            2) show_audio_info; press_enter_to_continue ;;
-            3) break ;;
-            *) echo "Invalid option. Please try again." ;;
+        case "$choice" in
+            1)
+                show_general_system_info
+                press_enter_to_continue
+                ;;
+            2)
+                show_audio_info
+                press_enter_to_continue
+                ;;
+            3)
+                break
+                ;;
+            *)
+                echo "Invalid choice"
+                ;;
         esac
     done
 }
 
-# Function to handle Audio Tests menu
 handle_audio_tests_menu() {
+    local choice
+
     while true; do
         display_audio_tests_menu
         read -r choice
-        case $choice in
-            1) play_system_sound; press_enter_to_continue ;;
-            2) play_beep_sound; press_enter_to_continue ;;
-            3) test_mic_array_simple; press_enter_to_continue ;;
-            4) test_mic_array_advanced; press_enter_to_continue ;;
-            5) test_recording_simple; press_enter_to_continue ;;
-            6) test_recording_advanced; press_enter_to_continue ;;
-            7) test_mic_array_comprehensive; press_enter_to_continue ;;
-            8) test_audio_playback; press_enter_to_continue ;;
-            9) run_all_tests; press_enter_to_continue ;;
-            10) break ;;
-            *) echo "Invalid option. Please try again." ;;
+        case "$choice" in
+            1)
+                play_system_sound
+                press_enter_to_continue
+                ;;
+            2)
+                play_beep_sound
+                press_enter_to_continue
+                ;;
+            3)
+                test_recording_simple
+                press_enter_to_continue
+                ;;
+            4)
+                test_recording_matrix
+                press_enter_to_continue
+                ;;
+            5)
+                test_mic_array_simple
+                press_enter_to_continue
+                ;;
+            6)
+                test_mic_array_comprehensive
+                press_enter_to_continue
+                ;;
+            7)
+                test_audio_playback_tones
+                press_enter_to_continue
+                ;;
+            8)
+                run_all_audio_tests
+                press_enter_to_continue
+                ;;
+            9)
+                break
+                ;;
+            *)
+                echo "Invalid choice"
+                ;;
         esac
     done
 }
 
-# Function to handle Hardware Tests menu
 handle_hardware_tests_menu() {
+    local choice
+
     while true; do
         display_hardware_tests_menu
         read -r choice
-        case $choice in
-            1) test_leds; press_enter_to_continue ;;
-            2) check_alsa_mixer; press_enter_to_continue ;;
-            3) break ;;
-            *) echo "Invalid option. Please try again." ;;
+        case "$choice" in
+            1)
+                test_leds
+                press_enter_to_continue
+                ;;
+            2)
+                check_alsa_mixer
+                press_enter_to_continue
+                ;;
+            3)
+                break
+                ;;
+            *)
+                echo "Invalid choice"
+                ;;
         esac
     done
 }
 
-# Updated Function to handle Maintenance menu
 handle_maintenance_menu() {
+    local choice
+
     while true; do
         display_maintenance_menu
         read -r choice
-        case $choice in
-            1) reload_audio_modules; press_enter_to_continue ;;
-            2) check_pulseaudio; press_enter_to_continue ;;
-            3) general_pulseaudio_info; install_pulseaudio; press_enter_to_continue ;;
-            4) check_firmware_updates; press_enter_to_continue ;;
-            5) alsamixer; press_enter_to_continue ;;
-            6) choose_asound_conf_version; press_enter_to_continue ;;
-            7) break ;;
-            *) echo "Invalid option. Please try again." ;;
+        case "$choice" in
+            1)
+                reload_audio_modules
+                press_enter_to_continue
+                ;;
+            2)
+                show_audio_server_status
+                press_enter_to_continue
+                ;;
+            3)
+                run_alsamixer
+                press_enter_to_continue
+                ;;
+            4)
+                apply_asound_profile
+                press_enter_to_continue
+                ;;
+            5)
+                run_smoke_test_workflow
+                press_enter_to_continue
+                ;;
+            6)
+                run_doctor_workflow
+                press_enter_to_continue
+                ;;
+            7)
+                check_firmware_updates
+                press_enter_to_continue
+                ;;
+            8)
+                break
+                ;;
+            *)
+                echo "Invalid choice"
+                ;;
         esac
     done
 }
 
-press_enter_to_continue() {
-    echo ""
-    read -p "Press Enter to continue..."
-}
-
-# Main function to run the script
 handle_main_menu() {
+    local choice
+
     while true; do
         display_main_menu
         read -r choice
-        case $choice in
-            1) handle_system_info_menu ;;
-            2) handle_audio_tests_menu ;;
-            3) handle_hardware_tests_menu ;;
-            4) handle_maintenance_menu ;;
-            5) handle_package_info_menu ;;
-            6) exit 0 ;;
-            *) echo "Invalid option. Please try again." ;;
+        case "$choice" in
+            1)
+                handle_system_info_menu
+                ;;
+            2)
+                handle_audio_tests_menu
+                ;;
+            3)
+                handle_hardware_tests_menu
+                ;;
+            4)
+                handle_maintenance_menu
+                ;;
+            5)
+                show_package_status
+                press_enter_to_continue
+                ;;
+            6)
+                return 0
+                ;;
+            *)
+                echo "Invalid choice"
+                ;;
         esac
     done
 }
 
-# Start the script
-handle_main_menu
+main() {
+    require_root
+    trap 'restore_terminal_state; cleanup_temp_files' EXIT
+    handle_main_menu
+}
+
+main "$@"

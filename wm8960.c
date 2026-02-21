@@ -1405,7 +1405,11 @@ static struct i2c_driver wm8960_i2c_driver = {
 		.name = "wm8960",
 		.of_match_table = wm8960_of_match,
 	},
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6,6,0)
+	.probe_new = wm8960_i2c_probe,
+#else
 	.probe =    wm8960_i2c_probe,
+#endif
 	.remove =   wm8960_i2c_remove,
 	.id_table = wm8960_i2c_id,
 };

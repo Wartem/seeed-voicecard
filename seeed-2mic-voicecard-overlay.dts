@@ -32,6 +32,9 @@
 				compatible = "wlf,wm8960";
 				reg = <0x1a>;
 				#sound-dai-cells = <0>;
+				clocks = <&wm8960_mclk>;
+				clock-names = "mclk";
+				system-clock-frequency = <12288000>;
 				AVDD-supply = <&vdd_5v0_reg>;
 				DVDD-supply = <&vdd_3v3_reg>;
 			};
@@ -46,6 +49,7 @@
                 simple-audio-card,format = "i2s";
                 simple-audio-card,name = "seeed-2mic-voicecard"; 
                 status = "okay";
+                simple-audio-card,mclk-fs = <256>;
                 simple-audio-card,widgets =
                         "Microphone", "Mic Jack",
                         "Line", "Line In",
@@ -72,6 +76,7 @@
                     sound-dai = <&wm8960>;
 			clocks = <&wm8960_mclk>;
 			clock-names = "mclk";
+			system-clock-frequency = <12288000>;
 
                 };
         };
@@ -83,4 +88,3 @@
         master = <0>,"=2!3";
     };
 };
-
