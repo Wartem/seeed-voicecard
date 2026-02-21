@@ -434,12 +434,11 @@ run_doctor() {
 main_menu_choice() {
     menu_select "Seeed Voicecard CLI" "Choose an action" 0 \
         "1" "Install (guided prompts)" \
-        "2" "Install (quick non-interactive)" \
-        "3" "Uninstall" \
-        "4" "Diagnostics and Tests" \
-        "5" "Post-install Smoke Test" \
-        "6" "Doctor (Auto Configure + Validate)" \
-        "7" "Exit"
+        "2" "Uninstall" \
+        "3" "Diagnostics and Tests" \
+        "4" "Post-install Smoke Test" \
+        "5" "Doctor (Auto Configure + Validate)" \
+        "6" "Exit"
 }
 
 usage() {
@@ -519,12 +518,11 @@ main() {
 
         case "$choice" in
             1) run_install_guided ;;
-            2) run_install_quick ;;
-            3) run_uninstall ;;
-            4) run_diagnostics ;;
-            5) run_smoke_test ;;
-            6) run_doctor ;;
-            7) break ;;
+            2) run_uninstall ;;
+            3) run_diagnostics ;;
+            4) run_smoke_test ;;
+            5) run_doctor ;;
+            6) break ;;
             *) ui_msg "Invalid" "Invalid option selected." ;;
         esac
     done
