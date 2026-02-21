@@ -1,3 +1,20 @@
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+![Raspberry Pi](https://img.shields.io/badge/Raspberry%20Pi-A22846?style=for-the-badge&logo=Raspberry%20Pi&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+![C](https://img.shields.io/badge/c-%2300599C.svg?style=for-the-badge&logo=c&logoColor=white)
+![Shell Script](https://img.shields.io/badge/shell_script-%23121011.svg?style=for-the-badge&logo=gnu-bash&logoColor=white)
+![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
+![ALSA](https://img.shields.io/badge/ALSA-Audio-brightgreen?style=for-the-badge)
+![ReSpeaker](https://img.shields.io/badge/ReSpeaker-Compatible-blue?style=for-the-badge)
+![Debian](https://img.shields.io/badge/Debian-D70A53?style=for-the-badge&logo=debian&logoColor=white)
+![ARM](https://img.shields.io/badge/ARM-0091BD?style=for-the-badge&logo=arm&logoColor=white)
+![I2C](https://img.shields.io/badge/I2C-Enabled-yellowgreen?style=for-the-badge)
+![SPI](https://img.shields.io/badge/SPI-Enabled-orange?style=for-the-badge)
+![Kernel Module](https://img.shields.io/badge/Kernel-Module-lightgrey?style=for-the-badge)
+![DKMS](https://img.shields.io/badge/DKMS-Supported-yellow?style=for-the-badge)
+![Pi 4](https://img.shields.io/badge/Raspberry%20Pi%204-Supported-success?style=for-the-badge)
+![Pi 5](https://img.shields.io/badge/Raspberry%20Pi%205-Supported-success?style=for-the-badge)
+
 # seeed-voicecard (Extended)
 
 Community-maintained ReSpeaker voicecard drivers and tooling for Raspberry Pi,
