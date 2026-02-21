@@ -180,6 +180,23 @@ Show help:
 ./expanded/exp_doctor.sh --help
 ```
 
+### Diagnostics Interface Preview
+```bash
+sudo ./expanded/exp_diagnostics_and_tests.sh
+```
+
+Main diagnostics menu:
+
+![Interactive CLI diagnostics menu](https://github.com/user-attachments/assets/aa316ef0-084a-4fc1-b797-e97fb8afca01)
+
+Audio tests submenu:
+
+![Interactive CLI audio_tests menu](https://github.com/user-attachments/assets/f0ab357f-0c72-475b-a9c6-0a169812b592)
+
+Maintenance submenu:
+
+![Interactive CLI maintenance](https://github.com/user-attachments/assets/6fd79b35-ebfd-45b9-a527-82cc26e8295a)
+
 ### LED Test Scope
 
 `expanded/exp_diagnostics_and_tests.sh` includes a generic LED test that toggles
