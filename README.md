@@ -9,8 +9,8 @@
 
 # seeed-voicecard (Extended)
 
-Community-maintained ReSpeaker voicecard drivers and tooling for Raspberry Pi,
-with practical support improvements for Raspberry Pi 4 and 5.
+Independent maintenance fork of the ReSpeaker voicecard drivers, focused on restoring and 
+maintaining compatibility with modern Raspberry Pi kernels on Raspberry Pi 4 and 5.
 
 This repository includes:
 - Kernel driver sources and DKMS install path
@@ -31,21 +31,6 @@ Notes:
 - 6-mic selection currently maps to the `seeed-8mic-voicecard` overlay path in this fork.
 - This is still community-supported software. Validate behavior on your specific OS/kernel/device combination.
 
-## Kernel Support
-
-Validated in this fork:
-- `6.6.51+rpt-rpi-2712` (Raspberry Pi 5)
-- `6.12.62+rpt-rpi-2712` (Raspberry Pi 5)
-
-How support works:
-- Installer registers driver sources in DKMS.
-- DKMS builds modules for installed kernel headers.
-- The running kernel (`uname -r`) loads its matching module set.
-
-Compatibility updates in this fork include:
-- API-guarded driver changes for 6.1/6.6/6.12 ASoC and driver callbacks.
-- Overlay updates for 2-mic clock/MCLK handling needed on newer kernels.
-
 ## Quick Start
 
 ```bash
@@ -53,14 +38,17 @@ git clone https://github.com/Wartem/seeed-voicecard
 cd seeed-voicecard
 ```
 
-### Option 1: Interactive CLI Wrapper
+### Option 1: Interactive CLI Wrapper (Recommended for most users)
 
+Interactive CLI main menu
 ```bash
 ./expanded_menu.sh
 ```
 
+![Main menu over SSH](https://github.com/user-attachments/assets/c1616d0e-722e-4c87-8ca2-22c5c6272299)
+
 The wrapper:
-- Works over SSH in a plain terminal (no `whiptail`/`dialog` dependency)
+- Works in a plain terminal (no `whiptail`/`dialog`)
 - Adds safety checks for conflicting runs
 - Writes per-action logs and prints PASS/WARN/FAIL summaries
 - Supports direct command mode:
@@ -143,6 +131,22 @@ At a high level it performs the following actions:
 11. Prompts for reboot (or reboots automatically with `--reboot`).
 
 This is designed to be idempotent for normal re-runs on the same host.
+Re-running the installer on the same model does not duplicate boot entries or module registrations.
+
+## Kernel Support
+
+Validated in this fork:
+- `6.6.51+rpt-rpi-2712` (Raspberry Pi 5)
+- `6.12.62+rpt-rpi-2712` (Raspberry Pi 5)
+
+How support works:
+- Installer registers driver sources in DKMS.
+- DKMS builds modules for installed kernel headers.
+- The running kernel (`uname -r`) loads its matching module set.
+
+Compatibility updates in this fork include:
+- API-guarded driver changes for 6.1/6.6/6.12 ASoC and driver callbacks.
+- Overlay updates for 2-mic clock/MCLK handling needed on newer kernels.
 
 ## Validation Workflows
 
@@ -195,7 +199,7 @@ Typical location:
 
 - Some setups may still require manual ALSA/mixer tuning depending on hardware and ambient noise.
 - LED behavior can vary by board/revision and may not work uniformly.
-- Community support quality depends on reproducible logs and hardware details provided in issues.
+- Due to hardware and kernel coupling, issues are difficult to diagnose without access to the same device and kernel version.
 
 ## Update Log
 
@@ -219,13 +223,13 @@ For ongoing history, see `CHANGELOG.md`.
 
 ## Disclaimer
 
-This project is experimental and community-supported. Use at your own risk.
+This project is experimental and unofficial. Use at your own risk.
 Always keep backups before changing kernel/audio configuration on production devices.
 
 ## Credits
 
 This fork builds on:
-- Original Seeed ReSpeaker driver project
+- Original Seeed ReSpeaker driver repository: https://github.com/respeaker/seeed-voicecard
 - Community maintenance by multiple contributors (including HinTak's fork)
 
 Upstream product docs:
