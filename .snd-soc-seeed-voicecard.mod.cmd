@@ -1,1 +1,0 @@
-savedcmd_/home/wartem/seeed-voicecard/snd-soc-seeed-voicecard.mod := printf '%s\n'   seeed-voicecard.o | awk '!x[$$0]++ { print("/home/wartem/seeed-voicecard/"$$0) }' > /home/wartem/seeed-voicecard/snd-soc-seeed-voicecard.mod

@@ -1,1 +1,0 @@
-savedcmd_/home/wartem/seeed-voicecard/snd-soc-ac108.o := ld -EL  -maarch64elf -z noexecstack --no-warn-rwx-segments   -r -o /home/wartem/seeed-voicecard/snd-soc-ac108.o @/home/wartem/seeed-voicecard/snd-soc-ac108.mod 

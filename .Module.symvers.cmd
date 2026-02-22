@@ -1,1 +1,0 @@
-savedcmd_/home/wartem/seeed-voicecard/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /home/wartem/seeed-voicecard/Module.symvers -T /home/wartem/seeed-voicecard/modules.order -i Module.symvers -e 

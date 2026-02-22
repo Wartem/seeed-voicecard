@@ -1,1 +1,0 @@
-savedcmd_/home/wartem/seeed-voicecard/snd-soc-wm8960.o := ld -EL  -maarch64elf -z noexecstack --no-warn-rwx-segments   -r -o /home/wartem/seeed-voicecard/snd-soc-wm8960.o @/home/wartem/seeed-voicecard/snd-soc-wm8960.mod 

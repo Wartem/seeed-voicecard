@@ -1,1 +1,0 @@
-savedcmd_/home/wartem/seeed-voicecard/snd-soc-seeed-voicecard.ko := ld -r -EL  -maarch64elf -z noexecstack --no-warn-rwx-segments --build-id=sha1  -T arch/arm64/module.lds -o /home/wartem/seeed-voicecard/snd-soc-seeed-voicecard.ko /home/wartem/seeed-voicecard/snd-soc-seeed-voicecard.o /home/wartem/seeed-voicecard/snd-soc-seeed-voicecard.mod.o;  true

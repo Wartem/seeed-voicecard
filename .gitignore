@@ -1,0 +1,17 @@
+# Generated Kbuild artifacts (repo-root build outputs)
+# Keep source, headers, DTS, scripts, and docs tracked.
+/.tmp_versions/
+/.*.cmd
+/.*.o.d
+/Module.symvers
+/.Module.symvers.cmd
+/modules.order
+/.modules.order.cmd
+
+# Kernel module build outputs (root only)
+/*.o
+/*.ko
+/*.mod
+/*.mod.c
+/*.mod.o
+
