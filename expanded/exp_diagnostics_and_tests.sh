@@ -74,6 +74,23 @@ detect_playback_card() {
     echo "$card"
 }
 
+extract_state_card_id() {
+    local state_file="$1"
+
+    [[ -f "$state_file" ]] || return 1
+
+    awk '
+        /^state\.[^[:space:]]+[[:space:]]*\{/ {
+            name = $1
+            sub(/^state\./, "", name)
+            if (name != "ALSA") {
+                print name
+                exit
+            }
+        }
+    ' "$state_file"
+}
+
 LAST_ARECORD_BUSY=0
 
 report_busy_playback_holders() {
@@ -652,15 +669,21 @@ apply_asound_profile() {
     ln -sfn "$target_conf" /etc/asound.conf
     log "Linked /etc/asound.conf -> ${target_conf}"
 
+    local restore_card=""
     if [[ -f "$target_state" ]]; then
         mkdir -p /var/lib/alsa
         ln -sfn "$target_state" /var/lib/alsa/asound.state
         log "Linked /var/lib/alsa/asound.state -> ${target_state}"
+        restore_card="$(extract_state_card_id "$target_state" || true)"
     else
         warn "Missing state file: ${target_state}"
     fi
 
-    alsactl restore || warn "alsactl restore failed"
+    if [[ -n "$restore_card" ]]; then
+        alsactl -f "$target_state" restore "$restore_card" || warn "alsactl restore failed for card ${restore_card}"
+    else
+        alsactl restore || warn "alsactl restore failed"
+    fi
 }
 
 show_package_line() {
